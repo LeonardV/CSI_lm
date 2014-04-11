@@ -1,4 +1,4 @@
-Linear-order-constraints
-==================================
+Constrained statistical inference (CSI) for Linear constraints
+==============================================================
 
-R code linear order-constraints
+R code linear constraints
