@@ -1,4 +1,4 @@
-Linear-order-constraints-and-Power
+Linear-order-constraints
 ==================================
 
-R code linear order-constraints and power
+R code linear order-constraints
