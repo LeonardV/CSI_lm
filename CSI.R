@@ -1,6 +1,9 @@
 #Code adjusted 04-11-2014 by L.Vanbrabant
 #This code contains experimental parts. 
 
+##to do##
+# add weights
+
 source('my.quadprog.R')
 
 CSI <- function(model, data, weights, ui=NULL, meq=0, 
