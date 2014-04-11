@@ -1,4 +1,4 @@
-Constrained statistical inference (CSI) for Linear constraints
+Constrained statistical inference (CSI) with Linear constraints
 ==============================================================
 
 R code linear constraints
