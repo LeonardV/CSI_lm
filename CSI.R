@@ -1,28 +1,52 @@
 #Code adjusted 04-11-2014 by L.Vanbrabant
-#This code contains experimental parts. 
+#For now, when bootstrap=FALSE, the p-value is only computed for the E-bar-square.
 
-##to do##
-# add weights
+##To do##
+#-fix weight section
+
+##############################
+## explaining the arguments ##
+##############################
+#model                : A description of the user-specified model. Typically, the model is described using the lm model syntax.
+#data                 : Data frame containing the observed variables used in the model.
+#weights              : An optional vector of weights to be used in the fitting process. Should be NULL or a numeric vector. If non-NULL, weighted least squares is used with weights weights (that is, minimizing sum(w*e^2)); otherwise ordinary least squares is used.
+#ui                   : Matrix (or vector in case of one single restriction only) defining the left-hand side of the restriction, ui%*%beta >= ci, where beta is the parameter vector.
+#meq                  : Integer number (default 0) giving the number of rows of ui that are used for equality restrictions instead of inequality restrictions.
+#pvalue               : If TRUE (default), a p-value is computed
+#bootstrap            : If TRUE, the p-value is computed based on simulation. Otherwise, the p-value is computed based on the calculated weights.
+#p.distr              : Assumed error-distribution (normal by default, "N") for computing a bootstrapped p-value. Two other options are the t-distribution ("T") and the chi^2-distributions ("Chi").
+#df                   : Degrees of freedom, when p.distr="T" of p.distr="Chi".
+#R                    : Integer; number of bootstrap draws. The default value is set to 99999.
+#double.bootstrap     : If TRUE the genuine double bootstrap is used to compute an additional set of plug-in p-values for each bootstrap sample.
+#double.bootstrap.R   : Integer; number of double bootstrap draws. The default value is set to 9999.
+#R2                   : Computes the constrained R-squared.
+#parallel             : The type of parallel operation to be used (if any). If missing, the default is set "no".
+#ncpus                : Integer: number of processes to be used in parallel operation: typically one would chose this to the number of available cores.
+#cl                   : An optional parallel or snow cluster for use if parallel = "snow". If not supplied, a cluster on the local machine is created for the duration of the InformativeTesting call.
+#seed                 : Seed value
+#verbose              : Logical; if TRUE, information is shown at each bootstrap draw.
+#...                  : Currently not used. 
 
 source('my.quadprog.R')
 
 CSI <- function(model, data, weights, ui=NULL, meq=0, 
-                pvalue=TRUE, bootstrap=FALSE, R=9999, 
-                parallel=c("no", "multicore", "snow"), ncpus=1L, cl=NULL, 
-                p.distr="N", df=7, R2=FALSE, 
-                double.bootstrap=FALSE, double.bootstrap.R=9999,
-                seed=NULL, verbose=FALSE) {
+                pvalue=TRUE, bootstrap=FALSE, p.distr="N", df=7, R=99999, 
+                double.bootstrap=FALSE, double.bootstrap.R=9999, R2=FALSE,
+                parallel=c("no", "multicore", "snow"), ncpus=1L, cl=NULL,                 
+                seed=NULL, verbose=FALSE, ...) {
   
   #checks
   parallel <- tolower(parallel)
   stopifnot(parallel %in% c("no", "multicore", "snow"),
-            p.distr %in% c("N", "T", "Chi"))#,
-            #double.bootstrap %in% c("no", "standard"))
+            p.distr %in% c("N", "T", "Chi"))
   
   if(!is.data.frame(data)) stop("\n The data should be a dataframe.") 
-  if(is.null(ui)) stop("\n No constraints matrix has been specified.") 
-    
-  T.obs <- vector("numeric", 6)
+  if(is.null(ui)) stop("\n No constraints matrix has been specified.")  
+  
+  T.obs <- rep(as.numeric(NA), 6)
+  p.value <- rep(as.numeric(NA), 6)
+  Rboot.tot <- as.numeric(NA)
+  
   if(double.bootstrap == "standard") {
     F-bar.plugin.pvalue.A <- rep(as.numeric(NA), R)
     F-bar.plugin.pvalue.B <- rep(as.numeric(NA), R)
@@ -139,139 +163,214 @@ CSI <- function(model, data, weights, ui=NULL, meq=0,
   }
   
   ##Compute p-value##
-  p.value <- rep(as.numeric(NA), 6)
-  Rboot.tot <- as.numeric(NA)
   
-  if (pvalue) { 
-    T.boot <- matrix(as.numeric(NA), R, 6)
+  if(pvalue) {
+    if(bootstrap) {    
+      T.boot <- matrix(as.numeric(NA), R, 6)
+          
+      fn <- function(b) { 
+        if (verbose) cat("R =", b)
+        if(!is.null(seed)) set.seed(seed + b)
+        if(!exists(".Random.seed", envir = .GlobalEnv))
+          runif(1)              
+        RNGstate <- .Random.seed
         
-    fn <- function(b) { 
-      if (verbose) cat("R =", b)
-      if(!is.null(seed)) set.seed(seed + b)
-      if(!exists(".Random.seed", envir = .GlobalEnv))
-        runif(1)              
-      RNGstate <- .Random.seed
-      
-      #bootstrapped p-value based on normal-, T-, or Chi-square distribution
-      if(p.distr=="N")
-        Yboot <- rnorm(n=n) 
-      else if(p.distr=="T")
-        Yboot <- rt(n=n, df=df)
-      else if(p.distr=="Chi")
-        Yboot <- rchisq(n=n, df=df)
-      
-      boot.data <- data.frame(Yboot, X[,-1])
+        #bootstrapped p-value based on normal-, T-, or Chi-square distribution
+        #Additional distributions can be added if needed.
+        if(p.distr=="N")
+          Yboot <- rnorm(n=n) 
+        else if(p.distr=="T")
+          Yboot <- rt(n=n, df=df)
+        else if(p.distr=="Chi")
+          Yboot <- rchisq(n=n, df=df)
         
-      out <- Fbar(model=formula(boot.data), data=boot.data, weights=w.model, 
-                  meq=meq, 
-                  pvalue=FALSE, R=1L, ui=ui,  
-                  p.distr=p.distr, df=df, R2=R2,
-                  seed=NULL, verbose=verbose) 
-      
-      if(verbose) cat("  ... ... T.obs  = ", out$T.obs, "\n")
-      
-      out <- out$T.obs
-      #out <- out$iact
-      
-      #standard double boostrap
-      if(double.bootstrap) {
-                
-        if (verbose) cat("   ... ... ... calibrating p.value - ")
+        boot.data <- data.frame(Yboot, X[,-1])
+          
+        out <- CSI(model=formula(boot.data), data=boot.data, weights=w.model, 
+                   meq=meq, 
+                   pvalue=FALSE, R=1L, ui=ui,  
+                   p.distr=p.distr, df=df, R2=R2,
+                   seed=NULL, verbose=verbose) 
         
-        plugin.pvalue <- Fbar(model, data=boot.data, weights=w.model, meq=meq, 
-                              pvalue=TRUE, R=double.bootstrap.R, ui=ui, 
-                              p.distr=p.distr, df=df, Rsquare=Rsquare,
-                              seed=NULL, verbose=FALSE,
-                              double.bootstrap=FALSE)$p.value
+        if(verbose) cat("  ... ... T.obs  = ", out$T.obs, "\n")
         
-        if (verbose) cat(sprintf("%5.3f", plugin.pvalue), "\n\n")
-        attr(out, "F-bar plugin.pvalue.A") <- plugin.pvalue[1]
-        attr(out, "F-bar plugin.pvalue.B") <- plugin.pvalue[2]
-        attr(out, "E^2-bar plugin.pvalue.A") <- plugin.pvalue[3]
-        attr(out, "E^2-bar plugin.pvalue.B") <- plugin.pvalue[4]
-        attr(out, "LRT.A") <- plugin.pvalue[5]
-        attr(out, "LRT.B") <- plugin.pvalue[6]
+        out <- out$T.obs
+        #out <- out$iact
         
+        #standard double boostrap
+        if(double.bootstrap) {
+                  
+          if (verbose) cat("   ... ... ... calibrating p.value - ")
+          
+          plugin.pvalue <- CSI(model, data=boot.data, weights=w.model, meq=meq, 
+                               pvalue=TRUE, R=double.bootstrap.R, ui=ui, 
+                               p.distr=p.distr, df=df, Rsquare=Rsquare,
+                               seed=NULL, verbose=FALSE,
+                               double.bootstrap=FALSE)$p.value
+          
+          if (verbose) cat(sprintf("%5.3f", plugin.pvalue), "\n\n")
+          attr(out, "F-bar plugin.pvalue.A") <- plugin.pvalue[1]
+          attr(out, "F-bar plugin.pvalue.B") <- plugin.pvalue[2]
+          attr(out, "E^2-bar plugin.pvalue.A") <- plugin.pvalue[3]
+          attr(out, "E^2-bar plugin.pvalue.B") <- plugin.pvalue[4]
+          attr(out, "LRT.A") <- plugin.pvalue[5]
+          attr(out, "LRT.B") <- plugin.pvalue[6]
+          
+        }
+        
+        out
       }
+    }else if(!bootstrap){
+        cov <- vcov(fit.lm)
+        
+        #only inequality constraints 
+        if (meq==0) {
+          wt.bar <- ic.infer:::ic.weights(ui %*% cov %*% t(ui)) 
+        }
+        #equality and inequality constraints
+        else if (meq > 0) {
+          wt.bar <- ic.weights(solve(solve(ui %*% cov %*% t(ui))[-(1:meq), 
+                                                                 -(1:meq)])) 
+        }
       
-      out
+        ##Compute p-values for hypothesis test Type A, see Silvapulle and Sen, 2005, p99-100 or
+        ##Shapiro 1988.
+        
+        k2=k=(p-1) #exclude intercept
+        p2=nrow(ui)
+        idx2=0:p2
+        wt.bar2=rev(wt.bar)
+        N2=nrow(fit.lm$model)
+        #df1a2=idx2/2
+        r=k #(k-1)
+        df1a2=(r-p2+idx2)/2
+        df2a2=(N2-k2+p2-idx2)/2        
+        
+        #These are adjusted functions of the pbetabar() function from the ic.infer package.
+        pbar.A <- function(x, df1a, df2a, wt) {
+          #  if (x <= 0) { 
+          #    cdf <- 1
+          #    return(cdf)
+          #  }
+          zed <- df1a == 0
+          cdf <- ifelse(any(zed), wt[zed], 0)
+          
+          cdf <- cdf + sum(pbeta(x, df1a[!zed], df2a[!zed])*wt[!zed])
+          
+          return(cdf)
+        }
+        
+        Ebar.pA <- pbar.A(x=T.obs[3], df1a=df1a2, df2a=df2a2, wt=wt.bar2)
+        Ebar.pA <- 1-Ebar.pA
+        
+        
+        #Hypothesis test Type B
+        k1=nrow(ui)
+        idx3=0:k1
+        df1b3=idx3/2
+        k2=k2
+        df2b3=(N2-k2)/2
+        
+        pbar.B <- function(x, df1b, df2b, wt) {
+          # if (x <= 0) {
+          #    cdf <- 1
+          #    return(cdf)
+          #}
+          zed <- df1b == 0
+          cdf <- ifelse(any(zed), wt[zed], 0)
+        
+          cdf <- cdf + sum(pbeta(x, df1b[!zed], df2b)*wt[!zed])
+          
+          return(cdf)
+        }
+        
+        Ebar.pB <- pbar.B(x=T.obs[4], df1b=df1b3, df2b=df2b3, wt=wt.bar)
+        Ebar.pB <- 1-Ebar.pB
+      
+        p.value[3:4] <- c(Ebar.pA, Ebar.pB)
+        
+      }      
+            
     }
     
-    RR <- sum(R)
-    res <- if (ncpus > 1L && (have_mc || have_snow)) {
-      if (have_mc) {
-        parallel::mclapply(seq_len(RR), fn, mc.cores = ncpus)
-      }
-      else if (have_snow) {
-        if (is.null(cl)) {
-          cl <- parallel::makePSOCKcluster(rep("localhost", ncpus)) 
-          if (RNGkind()[1L] == "L'Ecuyer-CMRG") 
-            parallel::clusterSetRNGStream(cl) 
-          res <- parallel::parLapply(cl, seq_len(RR), fn)  
-          parallel::stopCluster(cl) 
-          res
+    #Stuff when a bootstrapped p-value is computed and parallel processing is used.
+    if(bootstrap){
+      RR <- sum(R)
+      res <- if (ncpus > 1L && (have_mc || have_snow)) {
+        if (have_mc) {
+          parallel::mclapply(seq_len(RR), fn, mc.cores = ncpus)
         }
-        else parallel::parLapply(cl, seq_len(RR), fn)
-      }
-    } 
-    else lapply(seq_len(RR), fn)
-        
-    error.idx <- integer(0)
-      for (b in seq_len(RR)) {
-        if (!is.null(res[[b]])) {
-          T.boot[b, 1:6] <- res[[b]]
-          if (double.bootstrap) { 
-            F-bar.plugin.pvalue.A[b] <- attr(res[[b]], "F-bar plugin.pvalue.A")
-            F-bar.plugin.pvalue.B[b] <- attr(res[[b]], "F-bar plugin.pvalue.B")
-            E-bar.plugin.pvalue.A[b] <- attr(res[[b]], "E^2-bar plugin.pvalue.A")
-            E-bar.plugin.pvalue.B[b] <- attr(res[[b]], "E^2-bar plugin.pvalue.B")
-            LRT.A[b] <- attr(res[[b]], "LRT.A")
-            LRT.B[b] <- attr(res[[b]], "LRT.B")
-          } 
-        } else {
-          error.idx <- c(error.idx, b)
+        else if (have_snow) {
+          if (is.null(cl)) {
+            cl <- parallel::makePSOCKcluster(rep("localhost", ncpus)) 
+            if (RNGkind()[1L] == "L'Ecuyer-CMRG") 
+              parallel::clusterSetRNGStream(cl) 
+            res <- parallel::parLapply(cl, seq_len(RR), fn)  
+            parallel::stopCluster(cl) 
+            res
+          }
+          else parallel::parLapply(cl, seq_len(RR), fn)
         }
+      } 
+      else lapply(seq_len(RR), fn)
+          
+      error.idx <- integer(0)
+        for (b in seq_len(RR)) {
+          if (!is.null(res[[b]])) {
+            T.boot[b, 1:6] <- res[[b]]
+            if (double.bootstrap) { 
+              F-bar.plugin.pvalue.A[b] <- attr(res[[b]], "F-bar plugin.pvalue.A")
+              F-bar.plugin.pvalue.B[b] <- attr(res[[b]], "F-bar plugin.pvalue.B")
+              E-bar.plugin.pvalue.A[b] <- attr(res[[b]], "E^2-bar plugin.pvalue.A")
+              E-bar.plugin.pvalue.B[b] <- attr(res[[b]], "E^2-bar plugin.pvalue.B")
+              LRT.A[b] <- attr(res[[b]], "LRT.A")
+              LRT.B[b] <- attr(res[[b]], "LRT.B")
+            } 
+          } else {
+            error.idx <- c(error.idx, b)
+          }
+        }
+      
+      if(double.bootstrap) {  
+        attr(p.value, "plugin.pvalue.A") <- F-bar.plugin.pvalue.A
+        attr(p.value, "plugin.pvalue.B") <- F-bar.plugin.pvalue.B
+        attr(p.value, "plugin.pvalue.B") <- E-bar.plugin.pvalue.A
+        attr(p.value, "plugin.pvalue.B") <- E-bar.plugin.pvalue.B
+        attr(p.value, "plugin.pvalue.A") <- LRT.A
+        attr(p.value, "plugin.pvalue.B") <- LRT.B
       }
-    
-    if(double.bootstrap) {  
-      attr(p.value, "plugin.pvalue.A") <- F-bar.plugin.pvalue.A
-      attr(p.value, "plugin.pvalue.B") <- F-bar.plugin.pvalue.B
-      attr(p.value, "plugin.pvalue.B") <- E-bar.plugin.pvalue.A
-      attr(p.value, "plugin.pvalue.B") <- E-bar.plugin.pvalue.B
-      attr(p.value, "plugin.pvalue.A") <- LRT.A
-      attr(p.value, "plugin.pvalue.B") <- LRT.B
+      #remove NA values / Inf values
+      na.boot.ind   <- which(is.na(T.boot), arr.ind = TRUE)
+      inf.boot.ind  <- which(T.boot == Inf, arr.ind = TRUE)
+        ind <- c(na.boot.ind[,1], inf.boot.ind[,1])
+      
+      ind.unique <- unique(ind)
+      Rboot.tot <- (R - length(ind.unique))
+      
+      if(length(ind.unique) > 0) 
+        T.boot <- T.boot[-ind.unique,]
+      
+      p.value[1]  <- sum(T.boot[,1] > T.obs[1]) / Rboot.tot
+      p.value[2]  <- sum(T.boot[,2] > T.obs[2]) / Rboot.tot
+      p.value[3]  <- sum(T.boot[,3] > T.obs[3]) / Rboot.tot
+      p.value[4]  <- sum(T.boot[,4] > T.obs[4]) / Rboot.tot
+      p.value[5]  <- sum(T.boot[,5] > T.obs[5]) / Rboot.tot
+      p.value[6]  <- sum(T.boot[,6] > T.obs[6]) / Rboot.tot
     }
-    #remove NA values / Inf values
-    na.boot.ind   <- which(is.na(T.boot), arr.ind = TRUE)
-    inf.boot.ind  <- which(T.boot == Inf, arr.ind = TRUE)
-      ind <- c(na.boot.ind[,1], inf.boot.ind[,1])
     
-    ind.unique <- unique(ind)
-    Rboot.tot <- (R - length(ind.unique))
-    
-    if(length(ind.unique) > 0) 
-      T.boot <- T.boot[-ind.unique,]
-    
-    p.value[1]  <- sum(T.boot[,1] > T.obs[1]) / Rboot.tot
-    p.value[2]  <- sum(T.boot[,2] > T.obs[2]) / Rboot.tot
-    p.value[3]  <- sum(T.boot[,3] > T.obs[3]) / Rboot.tot
-    p.value[4]  <- sum(T.boot[,4] > T.obs[4]) / Rboot.tot
-    p.value[5]  <- sum(T.boot[,5] > T.obs[5]) / Rboot.tot
-    p.value[6]  <- sum(T.boot[,6] > T.obs[6]) / Rboot.tot
-  }
-
-  names(T.obs) <- c("Fbar.A","Fbar.B","Ebar^2.A","Ebar^2.B","LRT.A","LRT.B")
-  names(p.value) <- c("Fbar.A","Fbar.B","Ebar^2.A","Ebar^2.B","LRT.A","LRT.B")
-
-
+    #Assign names to the output
+    names(T.obs) <- c("Fbar.A","Fbar.B","Ebar^2.A","Ebar^2.B","LRT.A","LRT.B")
+    names(p.value) <- c("Fbar.A","Fbar.B","Ebar^2.A","Ebar^2.B","LRT.A","LRT.B")
+  
+  
   out <- list(T.obs=T.obs, iact=iact, p.value=round(p.value,4), 
-              Rboot.tot=Rboot.tot,
-              weights=w.model, ui=ui, meq=meq, R2=Rsq,
+              Rboot.tot=if(bootstrap) {Rboot.tot},
+              weights=w.model, ui=ui, meq=meq, R2=if(R2) {Rsq},
               par.h0=mean(predict(fit.lm)),
               par.h1=par.h1, 
               par.h2=optim.h1$unconstrainted.solution)
   
-  class(out) <- "Fbar"
+  class(out) <- "CSI"
   
   return(out)
   
