@@ -106,10 +106,10 @@ CSI <- function(model, data, weights, ui=NULL, meq=0,
   
   
   #fit h1 
-  optim.h1 <- my.solve.QP(Dmat = XX, dvec = Xy, Amat = t(ui), meq = meq)
+  optim.h1 <- my.solve.QP(Dmat=XX, dvec=Xy, Amat=t(ui), meq=0)
     optim.h1$solution[abs(optim.h1$solution) < sqrt(.Machine$double.eps)] <- 0L  
   par.h1 <- optim.h1$solution
-  RSS.h1 <- sum((Y - (X %*% par.h1))^2)
+  RSS.h1 <- sum((Y - (X%*%par.h1))^2)
   #number of active order constraints
   iact <- optim.h1$iact 
   
@@ -234,24 +234,20 @@ CSI <- function(model, data, weights, ui=NULL, meq=0,
         }
       
         ##Compute p-values for hypothesis test Type A, see Silvapulle and Sen, 2005, p99-100 or
-        ##Shapiro 1988.
-        
-        k2=k=(p-1) #exclude intercept
-        p2=nrow(ui)
-        idx2=0:p2
+        r=p-1
+        q=nrow(ui)
+        i=0:q
         wt.bar2=rev(wt.bar)
-        N2=nrow(fit.lm$model)
-        #df1a2=idx2/2
-        r=k #(k-1)
-        df1a2=(r-p2+idx2)/2
-        df2a2=(N2-k2+p2-idx2)/2        
+        
+        #i=p-q:p
+        df1a=(r-q+i)/2
+        df2a=(n-p+q-i)/2  
         
         #These are adjusted functions of the pbetabar() function from the ic.infer package.
         pbar.A <- function(x, df1a, df2a, wt) {
-          #  if (x <= 0) { 
-          #    cdf <- 1
-          #    return(cdf)
-          #  }
+            if (x <= 0) { 
+              return(0)
+            }
           zed <- df1a == 0
           cdf <- ifelse(any(zed), wt[zed], 0)
           
@@ -260,22 +256,17 @@ CSI <- function(model, data, weights, ui=NULL, meq=0,
           return(cdf)
         }
         
-        Ebar.pA <- pbar.A(x=T.obs[3], df1a=df1a2, df2a=df2a2, wt=wt.bar2)
-        Ebar.pA <- 1-Ebar.pA
+        Ebar.pA <- 1 - pbar.A(x=T.obs[3], df1a=df1a, df2a=df2a, wt=wt.bar2)
         
         
         #Hypothesis test Type B
-        k1=nrow(ui)
-        idx3=0:k1
-        df1b3=idx3/2
-        k2=k2
-        df2b3=(N2-k2)/2
+        df1b=i/2
+        df2b=(n-p)/2
         
         pbar.B <- function(x, df1b, df2b, wt) {
-          # if (x <= 0) {
-          #    cdf <- 1
-          #    return(cdf)
-          #}
+           if (x <= 0) {
+              return(0)
+          }
           zed <- df1b == 0
           cdf <- ifelse(any(zed), wt[zed], 0)
         
@@ -284,9 +275,8 @@ CSI <- function(model, data, weights, ui=NULL, meq=0,
           return(cdf)
         }
         
-        Ebar.pB <- pbar.B(x=T.obs[4], df1b=df1b3, df2b=df2b3, wt=wt.bar)
-        Ebar.pB <- 1-Ebar.pB
-      
+        Ebar.pB <- 1 - pbar.B(x=T.obs[4], df1b=df1b, df2b=df2b, wt=wt.bar)
+        
         p.value[3:4] <- c(Ebar.pA, Ebar.pB)
         
       }      
