@@ -2,7 +2,7 @@
 #For now, when bootstrap=FALSE, the p-value is only computed for the E-bar-square.
 
 ##To do##
-#-fix weight section
+#- add null-distribution for Fbar and Chi-square-bar
 
 ##############################
 ## explaining the arguments ##
