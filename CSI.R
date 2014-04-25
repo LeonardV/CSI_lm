@@ -2,14 +2,13 @@
 #For now, when bootstrap=FALSE, the p-value is only computed for the E-bar-square.
 
 ##To do##
-#- add null-distribution for Fbar and Chi-square-bar
+#- fix issue with weights=NULL
 
 ##############################
 ## explaining the arguments ##
 ##############################
 #model                : A description of the user-specified model. Typically, the model is described using the lm model syntax.
 #data                 : Data frame containing the observed variables used in the model.
-#weights              : An optional vector of weights to be used in the fitting process. Should be NULL or a numeric vector. If non-NULL, weighted least squares is used with weights weights (that is, minimizing sum(w*e^2)); otherwise ordinary least squares is used.
 #ui                   : Matrix (or vector in case of one single restriction only) defining the left-hand side of the restriction, ui%*%beta >= ci, where beta is the parameter vector.
 #meq                  : Integer number (default 0) giving the number of rows of ui that are used for equality restrictions instead of inequality restrictions.
 #pvalue               : If TRUE (default), a p-value is computed
@@ -29,7 +28,7 @@
 
 source('my.quadprog.R')
 
-CSI <- function(model, data, weights, ui=NULL, meq=0, 
+CSI <- function(model, data, ui=NULL, meq=0,  
                 pvalue=TRUE, bootstrap=FALSE, p.distr="N", df=7, R=99999, 
                 double.bootstrap=FALSE, double.bootstrap.R=9999, R2=FALSE,
                 parallel=c("no", "multicore", "snow"), ncpus=1L, cl=NULL,                 
@@ -72,8 +71,8 @@ CSI <- function(model, data, weights, ui=NULL, meq=0,
       ncpus <- 1L
   }
   
-  if(missing(weights)) weights <- NULL
-  fit.lm <- lm(as.formula(model), data, weights = weights)
+  #if(is.missing(weights)) { weights <- NULL }
+  fit.lm <- lm(as.formula(model), data, weights=NULL)
   mfit <- fit.lm$model
   Y <- model.response(mfit)
   X <- model.matrix(fit.lm)[,,drop=FALSE]
@@ -234,14 +233,15 @@ CSI <- function(model, data, weights, ui=NULL, meq=0,
         }
       
         ##Compute p-values for hypothesis test Type A, see Silvapulle and Sen, 2005, p99-100 or
-        r=p-1
+        p2=p-1
+        r=p2
         q=nrow(ui)
         i=0:q
         wt.bar2=rev(wt.bar)
         
         #i=p-q:p
         df1a=(r-q+i)/2
-        df2a=(n-p+q-i)/2  
+        df2a=(n-p+q-i)/2
         
         #These are adjusted functions of the pbetabar() function from the ic.infer package.
         pbar.A <- function(x, df1a, df2a, wt) {
