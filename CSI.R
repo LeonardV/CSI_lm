@@ -228,8 +228,8 @@ CSI <- function(model, data, ui=NULL, meq=0,
         }
         #equality and inequality constraints
         else if (meq > 0) {
-          wt.bar <- ic.weights(solve(solve(ui %*% cov %*% t(ui))[-(1:meq), 
-                                                                 -(1:meq)])) 
+          wt.bar <- ic.infer:::ic.weights(solve(solve(ui %*% cov %*% t(ui))
+                                                [-(1:meq),-(1:meq)])) 
         }
       
         ##Compute p-values for hypothesis test Type A, see Silvapulle and Sen, 2005, p99-100 or
