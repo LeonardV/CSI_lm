@@ -3,6 +3,7 @@
 
 ##To do##
 #- fix issue with weights=NULL
+#- add equality constraints to null-distribution
 
 ##############################
 ## explaining the arguments ##
@@ -230,12 +231,14 @@ CSI <- function(model, data, ui=NULL, meq=0,
         else if (meq > 0) {
           wt.bar <- ic.infer:::ic.weights(solve(solve(ui %*% cov %*% t(ui))
                                                 [-(1:meq),-(1:meq)])) 
+          
+          stop("equality constraints not yet implemented, use bootstrap=TRUE")
         }
       
         ##Compute p-values for hypothesis test Type A, see Silvapulle and Sen, 2005, p99-100 or
         p2=p-1
         r=p2
-        q=nrow(ui)
+        q=nrow(ui) - meq
         i=0:q
         wt.bar2=rev(wt.bar)
         
