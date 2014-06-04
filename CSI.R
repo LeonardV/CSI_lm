@@ -1,4 +1,3 @@
-#CHANGED
 #Code adjusted 04-11-2014 by L.Vanbrabant
 #For now, when bootstrap=FALSE, the p-value is only computed for the E-bar-square.
 
