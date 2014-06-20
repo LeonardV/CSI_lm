@@ -99,19 +99,19 @@ CSI <- function(model, data, ui=NULL, meq=0, overall=TRUE,
   ##fit models
   #fit h0  
   #Overall test
-  if(overall) {
-    ui.eq <- cbind(rep(0, (p - 1)), diag(rep(1, p - 1)))
-    optim.h0 <- my.solve.QP(Dmat = XX, dvec = Xy, Amat = t(ui.eq), meq=nrow(ui.eq))
-  }else {  
-    optim.h0 <- my.solve.QP(Dmat = XX, dvec = Xy, Amat = t(ui), meq=nrow(ui))
-  }
+#  if(overall) {
+#    ui.eq <- cbind(rep(0, (p - 1)), diag(rep(1, p - 1)))
+#    optim.h0 <- my.solve.QP(Dmat = XX, dvec = Xy, Amat = t(ui.eq), meq=nrow(ui.eq))
+#  }else {  
+#    optim.h0 <- my.solve.QP(Dmat = XX, dvec = Xy, Amat = t(ui), meq=nrow(ui))
+#  }
   
-  optim.h0$solution[abs(optim.h0$solution) < sqrt(.Machine$double.eps)] <- 0L  
-  par.h0 <- optim.h0$solution
-  RSS.h0 <- sum((Y - (X %*% par.h0))^2)
+#  optim.h0$solution[abs(optim.h0$solution) < sqrt(.Machine$double.eps)] <- 0L  
+#  par.h0 <- optim.h0$solution
+#  RSS.h0 <- sum((Y - (X %*% par.h0))^2)
   
 #  par.h0 <- c(mean(predict(fit.lm)), rep(0, (p-1)))
-#  RSS.h0 <- sum((Y - mean(predict(fit.lm)))^2)
+  RSS.h0 <- sum((Y - mean(predict(fit.lm)))^2)
   
   #fit h1 
   optim.h1 <- my.solve.QP(Dmat=XX, dvec=Xy, Amat=t(ui), meq=meq)
@@ -143,26 +143,26 @@ CSI <- function(model, data, ui=NULL, meq=0, overall=TRUE,
   
     
   #compute observed Fbar values
-  T.obs[1] <- t(par.h1 - par.h0) %*% solve(vcov(fit.lm), par.h1 - par.h0)
-  T.obs[2] <- t(par.h2 - par.h1) %*% solve(vcov(fit.lm), par.h2 - par.h1)
-  #T.obs[1] <-  (RSS.h0 - RSS.h1) / s2
-  #T.obs[2] <-  (RSS.h1 - RSS.h2) / s2 
+  #T.obs[1] <- t(par.h1 - par.h0) %*% solve(vcov(fit.lm), par.h1 - par.h0)
+  #T.obs[2] <- t(par.h2 - par.h1) %*% solve(vcov(fit.lm), par.h2 - par.h1)
+  T.obs[1] <-  (RSS.h0 - RSS.h1) / s2
+  T.obs[2] <-  (RSS.h1 - RSS.h2) / s2 
   
   #compute observed Ebar-square values
-  T1 <- t(par.h1 - par.h0) %*% solve(vcov(fit.lm)/summary(fit.lm)$sigma^2, par.h1 - par.h0)
-  T2 <- t(par.h2 - par.h1) %*% solve(vcov(fit.lm)/summary(fit.lm)$sigma^2, par.h2 - par.h1)
-  T.obs[3] <- T1/(df.error * s2 + T1)
-  T.obs[4] <- T2/(df.error * s2 + T2)
+  #T1 <- t(par.h1 - par.h0) %*% solve(vcov(fit.lm)/summary(fit.lm)$sigma^2, par.h1 - par.h0)
+  #T2 <- t(par.h2 - par.h1) %*% solve(vcov(fit.lm)/summary(fit.lm)$sigma^2, par.h2 - par.h1)
+  #T.obs[3] <- T1/(df.error * s2 + T1)
+  #T.obs[4] <- T2/(df.error * s2 + T2)
   
-  #T.obs[3] <-  (RSS.h0 - RSS.h1) / RSS.h0
-  #T.obs[4] <-  (RSS.h1 - RSS.h2) / RSS.h1
+  T.obs[3] <-  (RSS.h0 - RSS.h1) / RSS.h0
+  T.obs[4] <-  (RSS.h1 - RSS.h2) / RSS.h1
 
   T.obs[5] <- LRT.A
   T.obs[6] <- LRT.B
   
   #Fix negative and very small values to zero? 
-  #ind.zero <- which(T.obs < 1e-24) 
-  #T.obs <- replace(T.obs, ind.zero, 0)  
+  ind.zero <- which(T.obs < 1e-14) 
+  T.obs <- replace(T.obs, ind.zero, 0)  
   
   #Compute R-square for models with and without weights and with and without intercept
   Rsq <- NULL
@@ -383,7 +383,7 @@ CSI <- function(model, data, ui=NULL, meq=0, overall=TRUE,
     names(p.value) <- c("Fbar.A","Fbar.B","Ebar^2.A","Ebar^2.B","LRT.A","LRT.B")
   
   
-  out <- list(T.obs=T.obs, iact=iact, p.value=round(p.value,4), 
+  out <- list(T.obs=round(T.obs,4), iact=iact, p.value=round(p.value,4), 
               Rboot.tot=if(bootstrap) {Rboot.tot},
               weights=w.model, ui=ui, meq=meq, R2=if(R2) {Rsq},
               par.h0=par.h0,
