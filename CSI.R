@@ -5,7 +5,7 @@
 ##To do##
 #- fix issue with weights=NULL
 #- add equality constraints to null-distribution
-#- no intercept model
+#-
 
 ##############################
 ## explaining the arguments ##
@@ -110,7 +110,7 @@ CSI <- function(model, data, ui=NULL, meq=0, overall=TRUE,
 #  par.h0 <- optim.h0$solution
 #  RSS.h0 <- sum((Y - (X %*% par.h0))^2)
   
-#  par.h0 <- c(mean(predict(fit.lm)), rep(0, (p-1)))
+  par.h0 <- c(mean(predict(fit.lm)), rep(0, (p-1)))
   RSS.h0 <- sum((Y - mean(predict(fit.lm)))^2)
   
   #fit h1 
@@ -196,7 +196,7 @@ CSI <- function(model, data, ui=NULL, meq=0, overall=TRUE,
         #bootstrapped p-value based on normal-, T-, or Chi-square distribution
         #Additional distributions can be added if needed.
         if(p.distr=="N")
-          Yboot <- rnorm(n=n) 
+          Yboot <- rnorm(n=n, 0, 1) 
         else if(p.distr=="T")
           Yboot <- rt(n=n, df=df)
         else if(p.distr=="Chi")
