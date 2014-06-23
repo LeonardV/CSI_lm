@@ -29,7 +29,7 @@
 #verbose              : Logical; if TRUE, information is shown at each bootstrap draw.
 #...                  : Currently not used. 
 
-#source('my.quadprog.R')
+source('my.quadprog.R')
 
 CSI <- function(model, data, ui=NULL, meq=0, overall=TRUE,
                 pvalue=TRUE, bootstrap=FALSE, p.distr="N", df=7, R=99999, 
