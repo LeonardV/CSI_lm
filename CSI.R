@@ -4,7 +4,7 @@
 
 ##To do##
 #- fix issue with weights=NULL
-#- add equality constraints to null-distribution
+#- add equality constraints to null-distribution (done)
 
 ##############################
 ## explaining the arguments ##
