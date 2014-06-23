@@ -5,7 +5,7 @@
 ##To do##
 #- fix issue with weights=NULL
 #- add equality constraints to null-distribution
-#-
+#- add overall=FALSE option
 
 ##############################
 ## explaining the arguments ##
@@ -14,6 +14,7 @@
 #data                 : Data frame containing the observed variables used in the model.
 #ui                   : Matrix (or vector in case of one single restriction only) defining the left-hand side of the restriction, ui%*%beta >= ci, where beta is the parameter vector.
 #meq                  : Integer number (default 0) giving the number of rows of ui that are used for equality restrictions instead of inequality restrictions.
+#overall              : Currently not used
 #pvalue               : If TRUE (default), a p-value is computed
 #bootstrap            : If TRUE, the p-value is computed based on simulation. Otherwise, the p-value is computed based on the calculated weights.
 #p.distr              : Assumed error-distribution (normal by default, "N") for computing a bootstrapped p-value. Two other options are the t-distribution ("T") and the chi^2-distributions ("Chi").
@@ -21,7 +22,7 @@
 #R                    : Integer; number of bootstrap draws. The default value is set to 99999.
 #double.bootstrap     : If TRUE the genuine double bootstrap is used to compute an additional set of plug-in p-values for each bootstrap sample.
 #double.bootstrap.R   : Integer; number of double bootstrap draws. The default value is set to 9999.
-#R2                   : Computes the constrained R-squared.
+#R2                   : Computes the R-squared based on the constrained residuals.
 #parallel             : The type of parallel operation to be used (if any). If missing, the default is set "no".
 #ncpus                : Integer: number of processes to be used in parallel operation: typically one would chose this to the number of available cores.
 #cl                   : An optional parallel or snow cluster for use if parallel = "snow". If not supplied, a cluster on the local machine is created for the duration of the InformativeTesting call.
@@ -219,7 +220,7 @@ CSI <- function(model, data, ui=NULL, meq=0, overall=TRUE,
           if (verbose) cat("   ... ... ... calibrating p.value - ")
           
           plugin.pvalue <- CSI(model, data=boot.data, meq=meq, ui=ui,
-                               pvalue=TRUE, R=double.bootstrap.R,  
+                               overall=TRUE, pvalue=TRUE, R=double.bootstrap.R,  
                                p.distr=p.distr, df=df, R2=R2,
                                seed=NULL, verbose=FALSE,
                                double.bootstrap=FALSE)$p.value
