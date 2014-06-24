@@ -1,10 +1,14 @@
 #CHANGED
 #Code adjusted 06-20-2014 by L.Vanbrabant
+#Parts of the code are taken from the R package ic.infer (Grömping, 2010)
+
 #For now, when bootstrap=FALSE, the p-value is only computed for the E-bar-square.
 
 ##To do##
 #- fix issue with weights=NULL
 #- add equality constraints to null-distribution (done)
+#- add LRT p-value
+#- add p-value for Fbar
 
 ##############################
 ## explaining the arguments ##
@@ -44,7 +48,7 @@ CSI <- function(model, data, ui=NULL, meq=0,
   if(!is.data.frame(data)) stop("\n The data should be a dataframe.") 
   if(is.null(ui)) stop("\n No constraints matrix has been specified.")
   if(meq == nrow(ui)) stop("Test not applicable with equality restrictions only.")
-  
+    
   T.obs <- rep(as.numeric(NA), 6)
   p.value <- rep(as.numeric(NA), 6)
   Rboot.tot <- as.numeric(NA)
@@ -84,6 +88,8 @@ CSI <- function(model, data, ui=NULL, meq=0,
   n = length(Y) 
   p = length(coef(fit.lm))
   
+  if(attr(fit.lm$terms, "intercept") == 0) stop("include intercept")
+  
   #weigths specified
   if(!is.null(w.model)) {
     W <- diag(w.model)
@@ -102,25 +108,25 @@ CSI <- function(model, data, ui=NULL, meq=0,
   #    if(overall) {
   ui.eq <- cbind(rep(0, (p - 1)), diag(rep(1, p - 1)))
   optim.h0 <- my.solve.QP(Dmat = XX, dvec = Xy, Amat = t(ui.eq), meq=nrow(ui.eq))
-  optim.h0$solution[abs(optim.h0$solution) < sqrt(.Machine$double.eps)] <- 0L  
+    optim.h0$solution[abs(optim.h0$solution) < sqrt(.Machine$double.eps)] <- 0L  
   par.h0 <- optim.h0$solution
-  RSS.h0 <- sum((Y - (X %*% par.h0))^2)      
+#  RSS.h0 <- sum((Y - mean(X %*% par.h2))^2)        
   
-  #    par.h0 <- c(mean(predict(fit.lm)), rep(0, (p-1)))
-  #    RSS.h0 <- sum((Y - mean(predict(fit.lm)))^2)
+#   par.h0 <- c(mean(predict(fit.lm)), rep(0, (p-1)))
+#   RSS.h0 <- sum((Y - mean(predict(fit.lm)))^2)  )
   
   
   #fit h1 
   optim.h1 <- my.solve.QP(Dmat=XX, dvec=Xy, Amat=t(ui), meq=meq)
-  optim.h1$solution[abs(optim.h1$solution) < sqrt(.Machine$double.eps)] <- 0L  
+    optim.h1$solution[abs(optim.h1$solution) < sqrt(.Machine$double.eps)] <- 0L  
   par.h1 <- optim.h1$solution
-  RSS.h1 <- sum((Y - (X%*%par.h1))^2)
+#  RSS.h1 <- sum((Y - (X%*%par.h1))^2)
   
   #number of active order constraints
   iact <- optim.h1$iact 
   
   #fit h2
-  RSS.h2 <- sum(resid(fit.lm)^2)
+#  RSS.h2 <- sum(resid(fit.lm)^2)
   par.h2 <- optim.h1$unconstrainted.solution
   
   #Transform RSS into LRT
@@ -152,10 +158,10 @@ CSI <- function(model, data, ui=NULL, meq=0,
   T.obs[4] <- T2/(df.error * s2 + T2)
   
   
-  #    T.obs[1] <-  (RSS.h0 - RSS.h1) / s2
-  #    T.obs[2] <-  (RSS.h1 - RSS.h2) / s2 
-  #    T.obs[3] <-  (RSS.h0 - RSS.h1) / RSS.h0
-  #    T.obs[4] <-  (RSS.h1 - RSS.h2) / RSS.h1
+#      T.obs[1] <-  (RSS.h0 - RSS.h1) / s2
+#      T.obs[2] <-  (RSS.h1 - RSS.h2) / s2 
+#      T.obs[3] <-  (RSS.h0 - RSS.h1) / RSS.h0
+#      T.obs[4] <-  (RSS.h1 - RSS.h2) / RSS.h1
   
   #compute observed Ebar-square values
   T.obs[5] <- LRT.A
@@ -253,10 +259,12 @@ CSI <- function(model, data, ui=NULL, meq=0,
       }
       
       ##Compute p-values for hypothesis test Type A, see Silvapulle and Sen, 2005, p99-100 or
-      r=Matrix:::rankMatrix(ui)[1]
-      q=(nrow(ui) - meq) 
-      i=0:q
+      #r=p-1
+      #q=(nrow(ui) - meq) 
+      #i=0:q
       wt.bar2=rev(wt.bar)
+      
+      #df1a = (r-q+i)/2
       
       #less than the max. number of constraints
       #In case of the overall test
@@ -292,7 +300,7 @@ CSI <- function(model, data, ui=NULL, meq=0,
       #Hypothesis test Type B
       #df1b=i/2
       df1b <- meq:nrow(ui)/2
-      df2b=(n-p)/2
+      df2b <- (n-p)/2
       
       pbar.B <- function(x, df1b, df2b, wt) {
         if (x <= 0) {
@@ -371,8 +379,8 @@ CSI <- function(model, data, ui=NULL, meq=0,
     p.value[2]  <- sum(T.boot[,2] > T.obs[2]) / Rboot.tot
     p.value[3]  <- sum(T.boot[,3] > T.obs[3]) / Rboot.tot
     p.value[4]  <- sum(T.boot[,4] > T.obs[4]) / Rboot.tot
-    p.value[5]  <- sum(T.boot[,5] > T.obs[5]) / Rboot.tot
-    p.value[6]  <- sum(T.boot[,6] > T.obs[6]) / Rboot.tot
+    p.value[5]  <- NA #sum(T.boot[,5] > T.obs[5]) / Rboot.tot
+    p.value[6]  <- NA #sum(T.boot[,6] > T.obs[6]) / Rboot.tot
   }
   
   #Assign names to the output
