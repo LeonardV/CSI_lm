@@ -5,10 +5,11 @@
 #For now, when bootstrap=FALSE, the p-value is only computed for the E-bar-square.
 
 ##To do##
-#- fix issue with weights=NULL
-#- add equality constraints to null-distribution (done)
-#- add LRT p-value
-#- add p-value for Fbar
+#fix issue with weights=NULL
+#add equality constraints to null-distribution (done)
+#add LRT p-value
+#add p-value for Fbar
+#add confidence interval constrained estimates
 
 ##############################
 ## explaining the arguments ##
@@ -32,7 +33,7 @@
 #verbose              : Logical; if TRUE, information is shown at each bootstrap draw.
 #...                  : Currently not used. 
 
-source('my.quadprog.R')
+#source('my.quadprog.R')
 
 CSI <- function(model, data, ui=NULL, meq=0, 
                 pvalue=TRUE, bootstrap=FALSE, p.distr="N", df=7, R=99999, 
@@ -49,8 +50,8 @@ CSI <- function(model, data, ui=NULL, meq=0,
   if(is.null(ui)) stop("\n No constraints matrix has been specified.")
   if(meq == nrow(ui)) stop("Test not applicable with equality restrictions only.")
     
-  T.obs <- rep(as.numeric(NA), 6)
-  p.value <- rep(as.numeric(NA), 6)
+  T.obs <- rep(as.numeric(NA), 4)
+  p.value <- rep(as.numeric(NA), 4)
   Rboot.tot <- as.numeric(NA)
   
   if(double.bootstrap == "standard") {
@@ -58,8 +59,8 @@ CSI <- function(model, data, ui=NULL, meq=0,
     F-bar.plugin.pvalue.B <- rep(as.numeric(NA), R)
     E-bar.plugin.pvalue.A <- rep(as.numeric(NA), R)
     E-bar.plugin.pvalue.B <- rep(as.numeric(NA), R)
-    LRT.A <- rep(as.numeric(NA), R)
-    LRT.B <- rep(as.numeric(NA), R)
+#    LRT.A <- rep(as.numeric(NA), R)
+#    LRT.B <- rep(as.numeric(NA), R)
   }
   
   #prepare for parallel processing
@@ -113,7 +114,7 @@ CSI <- function(model, data, ui=NULL, meq=0,
 #  RSS.h0 <- sum((Y - mean(X %*% par.h2))^2)        
   
 #   par.h0 <- c(mean(predict(fit.lm)), rep(0, (p-1)))
-#   RSS.h0 <- sum((Y - mean(predict(fit.lm)))^2)  )
+#   RSS.h0 <- sum((Y - mean(predict(fit.lm)))^2)  
   
   
   #fit h1 
@@ -130,11 +131,11 @@ CSI <- function(model, data, ui=NULL, meq=0,
   par.h2 <- optim.h1$unconstrainted.solution
   
   #Transform RSS into LRT
-  LRT.A <- 2*((mllik <- -(n/2)*log(2*pi/n) - (n/2) - ((n/2)*log(RSS.h1))) -
-                (mllik <- -(n/2)*log(2*pi/n) - (n/2) - ((n/2)*log(RSS.h0))))
-  
-  LRT.B <- 2*((mllik <- -(n/2)*log(2*pi/n) - (n/2) - ((n/2)*log(RSS.h2))) -
-                (mllik <- -(n/2)*log(2*pi/n) - (n/2) - ((n/2)*log(RSS.h1))))
+#  LRT.A <- 2*((mllik <- -(n/2)*log(2*pi/n) - (n/2) - ((n/2)*log(RSS.h1))) -
+#                (mllik <- -(n/2)*log(2*pi/n) - (n/2) - ((n/2)*log(RSS.h0))))
+#  
+#  LRT.B <- 2*((mllik <- -(n/2)*log(2*pi/n) - (n/2) - ((n/2)*log(RSS.h2))) -
+#                (mllik <- -(n/2)*log(2*pi/n) - (n/2) - ((n/2)*log(RSS.h1))))
   
   
   #summary(fit.lm)$sigma^2
@@ -164,8 +165,8 @@ CSI <- function(model, data, ui=NULL, meq=0,
 #      T.obs[4] <-  (RSS.h1 - RSS.h2) / RSS.h1
   
   #compute observed Ebar-square values
-  T.obs[5] <- LRT.A
-  T.obs[6] <- LRT.B
+#  T.obs[5] <- LRT.A
+#  T.obs[6] <- LRT.B
   
   #Fix negative and very small values to zero? 
   ind.zero <- which(T.obs < 1e-14) 
@@ -191,7 +192,7 @@ CSI <- function(model, data, ui=NULL, meq=0,
   ##Compute p-value##  
   if(pvalue) {
     if(bootstrap) {    
-      T.boot <- matrix(as.numeric(NA), R, 6)
+      T.boot <- matrix(as.numeric(NA), R, 4)
       
       fn <- function(b) { 
         if (verbose) cat("R =", b)
@@ -211,9 +212,11 @@ CSI <- function(model, data, ui=NULL, meq=0,
         
         boot.data <- data.frame(Yboot, X[,-1])
         
-        out <- CSI(model=formula(boot.data), data=boot.data, ui=ui, meq=meq, 
-                   pvalue=FALSE, R2=R2, seed=NULL, 
-                   verbose=verbose) 
+        out <- CSI(model=formula(boot.data), data=boot.data,  
+                   meq=meq, 
+                   pvalue=FALSE, R=1L, ui=ui,  
+                   p.distr=p.distr, df=df, R2=R2,
+                   seed=NULL, verbose=verbose) 
         
         if(verbose) cat("  ... ... T.obs  = ", out$T.obs, "\n")
         
@@ -237,8 +240,8 @@ CSI <- function(model, data, ui=NULL, meq=0,
           attr(out, "F-bar plugin.pvalue.B") <- plugin.pvalue[2]
           attr(out, "E^2-bar plugin.pvalue.A") <- plugin.pvalue[3]
           attr(out, "E^2-bar plugin.pvalue.B") <- plugin.pvalue[4]
-          attr(out, "LRT.A") <- plugin.pvalue[5]
-          attr(out, "LRT.B") <- plugin.pvalue[6]
+          #attr(out, "LRT.A") <- plugin.pvalue[5]
+          #attr(out, "LRT.B") <- plugin.pvalue[6]
           
         }
         
@@ -266,24 +269,13 @@ CSI <- function(model, data, ui=NULL, meq=0,
       
       #df1a = (r-q+i)/2
       
-      #less than the max. number of constraints
-      #In case of the overall test
-      #      if(overall) { 
-      df1a <- (((length(par.h1)-1) - nrow(ui)):((length(par.h1)-1) - meq))/2  #CHECK IF CORRECT!
-      #      }else{        
-      #        df1a=(r-q+i)/2
-      
-      #        rank <- ic.infer:::RREF(t(ui), tol=sqrt(.Machine$double.eps))$rank
-      #        if(rank == (p-1)) { 
-      #          #          #max number of constraints
-      #          df1a <- (0:(nrow(ui) - meq))/2 
-      #        }
-      #      }
+      df1a <- (((length(par.h1)-1) - nrow(ui)):((length(par.h1)-1) - meq))/2  
       
       #df2a=(n-p+q-i)/2
       df2a=rep(df.error, length(df1a))/2
       
-      #These are adjusted functions of the pbetabar() function from the ic.infer package.
+      #These are adjusted functions of the pbetabar() function from the 
+      #ic.infer package.
       pbar.A <- function(x, df1a, df2a, wt) {
         if (x <= 0) { 
           return(0)
@@ -342,7 +334,7 @@ CSI <- function(model, data, ui=NULL, meq=0,
     error.idx <- integer(0)
     for (b in seq_len(RR)) {
       if (!is.null(res[[b]])) {
-        T.boot[b, 1:6] <- res[[b]]
+        T.boot[b, 1:4] <- res[[b]]
         if (double.bootstrap) { 
           F-bar.plugin.pvalue.A[b] <- attr(res[[b]], "F-bar plugin.pvalue.A")
           F-bar.plugin.pvalue.B[b] <- attr(res[[b]], "F-bar plugin.pvalue.B")
@@ -361,9 +353,10 @@ CSI <- function(model, data, ui=NULL, meq=0,
       attr(p.value, "plugin.pvalue.B") <- F-bar.plugin.pvalue.B
       attr(p.value, "plugin.pvalue.B") <- E-bar.plugin.pvalue.A
       attr(p.value, "plugin.pvalue.B") <- E-bar.plugin.pvalue.B
-      attr(p.value, "plugin.pvalue.A") <- LRT.A
-      attr(p.value, "plugin.pvalue.B") <- LRT.B
+      #attr(p.value, "plugin.pvalue.A") <- LRT.A
+      #attr(p.value, "plugin.pvalue.B") <- LRT.B
     }
+    
     #remove NA values / Inf values
     na.boot.ind   <- which(is.na(T.boot), arr.ind = TRUE)
     inf.boot.ind  <- which(T.boot == Inf, arr.ind = TRUE)
@@ -379,21 +372,21 @@ CSI <- function(model, data, ui=NULL, meq=0,
     p.value[2]  <- sum(T.boot[,2] > T.obs[2]) / Rboot.tot
     p.value[3]  <- sum(T.boot[,3] > T.obs[3]) / Rboot.tot
     p.value[4]  <- sum(T.boot[,4] > T.obs[4]) / Rboot.tot
-    p.value[5]  <- NA #sum(T.boot[,5] > T.obs[5]) / Rboot.tot
-    p.value[6]  <- NA #sum(T.boot[,6] > T.obs[6]) / Rboot.tot
+    #p.value[5]  <- sum(T.boot[,5] > T.obs[5]) / Rboot.tot
+    #p.value[6]  <- sum(T.boot[,6] > T.obs[6]) / Rboot.tot
   }
   
   #Assign names to the output
-  names(T.obs) <- c("Fbar.A","Fbar.B","Ebar^2.A","Ebar^2.B","LRT.A","LRT.B")
-  names(p.value) <- c("Fbar.A","Fbar.B","Ebar^2.A","Ebar^2.B","LRT.A","LRT.B")
+  names(T.obs) <- c("Fbar.A","Fbar.B","Ebar^2.A","Ebar^2.B")
+  names(p.value) <- c("Fbar.A","Fbar.B","Ebar^2.A","Ebar^2.B")
   
   
   out <- list(T.obs=round(T.obs,4), iact=iact, p.value=round(p.value,4), 
               Rboot.tot=if(bootstrap) {Rboot.tot},
               weights=w.model, ui=ui, meq=meq, R2=if(R2) {Rsq},
-              par.h0=par.h0,
-              par.h1=par.h1, 
-              par.h2=optim.h1$unconstrainted.solution)
+              par.h0=round(par.h0, 4),
+              par.h1=round(par.h1, 4),
+              par.h2=round(optim.h1$unconstrainted.solution, 4))
   
   class(out) <- "CSI"
   
