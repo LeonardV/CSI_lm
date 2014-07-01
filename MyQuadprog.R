@@ -36,7 +36,7 @@ my.solve.QP <- function (Dmat, dvec, Amat, bvec, meq = 0, factorized = FALSE)
   else if (res1$ierr == 2) 
     list(status=-2, value = "matrix D in quadratic function is not positive definite!")
   else
-    list(status=0, solution = res1$sol, value = res1$crval, unconstrainted.solution = res1$dvec, 
+    list(status=0, solution = res1$sol, value = res1$crval, unconstrained.solution = res1$dvec, 
          iterations = res1$iter, iact = res1$iact[1:res1$nact])
 }
 
