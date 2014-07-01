@@ -125,7 +125,7 @@ CSI <- function(model, data, ui=NULL, meq=0, weights=NULL, pvalue=TRUE,
   iact <- optim.h1$iact 
   
   #fit h2
-  par.h2 <- optim.h1$unconstrainted.solution
+  par.h2 <- optim.h1$unconstrained.solution
 #  RSS.h2 <- sum(resid(fit.lm)^2)
 
   #Transform RSS into LRT
