@@ -7,7 +7,7 @@
 #add equality constraints to null-distribution (done)
 #fix for no intercept model
 #add LRT p-value
-#add p-value for Fbar
+#add p-value for Fbar (done)
 #add confidence interval constrained estimates
 
 ##############################
