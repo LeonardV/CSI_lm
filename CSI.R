@@ -1,11 +1,11 @@
-#Code adjusted 06-30-2014 by L.Vanbrabant
+#Code adjusted 06-20-2014 by L.Vanbrabant
 #Parts of the code are taken from the R package ic.infer (Grömping, 2010)
 
 #For now, when bootstrap=FALSE, the p-value is only computed for the E-bar-square.
 
 ##To do##
 #add equality constraints to null-distribution (done)
-#add option for no intercept model
+#fix for no intercept model
 #add LRT p-value
 #add p-value for Fbar
 #add confidence interval constrained estimates
@@ -112,8 +112,8 @@ CSI <- function(model, data, ui=NULL, meq=0, weights=NULL, pvalue=TRUE,
                           meq=nrow(ui.eq))
     optim.h0$solution[abs(optim.h0$solution) < sqrt(.Machine$double.eps)] <- 0L  
   par.h0 <- optim.h0$solution
-#  RSS.h0 <- sum((Y - mean(X %*% par.h2))^2)        
-#  RSS.h0 <- sum((Y - mean(predict(fit.lm)))^2)  
+  RSS.h0 <- sum((Y - (X %*% par.h0))^2)        
+  #RSS.h0 <- sum((Y - mean(predict(fit.lm)))^2)  
    
   #fit h1 
   optim.h1 <- my.solve.QP(Dmat=XX, dvec=Xy, Amat=t(ui), meq=meq)
@@ -143,8 +143,15 @@ CSI <- function(model, data, ui=NULL, meq=0, weights=NULL, pvalue=TRUE,
   df.error <- summary(fit.lm)$fstatistic[3]
     
   #compute the F-bar test-statistic
-  T.obs[1] <- t(par.h1 - par.h0) %*% solve(vcov(fit.lm), par.h1 - par.h0)
-  T.obs[2] <- t(par.h2 - par.h1) %*% solve(vcov(fit.lm), par.h2 - par.h1)
+#  if(attr(fit.lm$terms, "intercept") == 0) {
+#    cov <- RSS.h0 * solve(t(X)%*%X)
+#    T.obs[1] <- t(par.h1 - par.h0) %*% solve(cov, par.h1 - par.h0)
+#    T.obs[2] <- t(par.h2 - par.h1) %*% solve(cov, par.h2 - par.h1)
+#  }else {
+    T.obs[1] <- t(par.h1 - par.h0) %*% solve(vcov(fit.lm), par.h1 - par.h0)
+    T.obs[2] <- t(par.h2 - par.h1) %*% solve(vcov(fit.lm), par.h2 - par.h1)
+#  }
+  
   
   #Compute the E-square-bar test-statistic. 
   T.obs[3] <- T.obs[1]/(df.error + T.obs[1])
@@ -252,8 +259,11 @@ CSI <- function(model, data, ui=NULL, meq=0, weights=NULL, pvalue=TRUE,
       ##Compute p-values for hypothesis test Type A, see Silvapulle and Sen, 
       #2005, p99-100 or
       wt.bar2=rev(wt.bar)
-      df1a <- (((length(par.h1)-1) - nrow(ui)):((length(par.h1)-1) - meq))/2  
-      df2a=rep(df.error, length(df1a))/2
+      df1a=(((length(par.h1)-1) - nrow(ui)):((length(par.h1)-1) - meq))  
+      q=nrow(ui) - meq
+      i=0:q
+      df2a=(n-p+q-i)
+      #df2a=rep(df.error, p)
       
       #These are adjusted functions of the pbetabar() function from the 
       #ic.infer package.
@@ -263,15 +273,15 @@ CSI <- function(model, data, ui=NULL, meq=0, weights=NULL, pvalue=TRUE,
         }
         zed <- df1a == 0
         cdf <- ifelse(any(zed), wt[zed], 0)
-        cdf <- cdf + sum(pbeta(x, df1a[!zed], df2a[!zed])*wt[!zed])
+        cdf <- cdf + sum(pbeta(x, df1a[!zed]/2, df2a[!zed]/2)*wt[!zed])
         
         return(cdf)
       }
       Ebar.pA <- 1 - pbar.A(x=T.obs[3], df1a=df1a, df2a=df2a, wt=wt.bar2)
       
       #Hypothesis test Type B
-      df1b <- meq:nrow(ui)/2
-      df2b <- (n-p)/2
+      df1b <- meq:nrow(ui)
+      #df2b <- (n-p)
       
       pbar.B <- function(x, df1b, df2b, wt) {
         if (x <= 0) {
@@ -279,13 +289,43 @@ CSI <- function(model, data, ui=NULL, meq=0, weights=NULL, pvalue=TRUE,
         }
         zed <- df1b == 0
         cdf <- ifelse(any(zed), wt[zed], 0)
-        cdf <- cdf + sum(pbeta(x, df1b[!zed], df2b)*wt[!zed])
+        cdf <- cdf + sum(pbeta(x, df1b[!zed]/2, df2b/2)*wt[!zed])
         
         return(cdf)
       }
-      Ebar.pB <- 1 - pbar.B(x=T.obs[4], df1b=df1b, df2b=df2b, wt=wt.bar)
+      Ebar.pB <- 1 - pbar.B(x=T.obs[4], df1b=df1b, df2b=df.error, wt=wt.bar)
       
       p.value[3:4] <- c(Ebar.pA, Ebar.pB)
+      
+####################
+      pbar.A <- function(x, df1a, df2a, wt) {
+        if (x <= 0) { 
+          return(0)
+        }
+        zed <- df1a == 0
+        cdf <- ifelse(any(zed), wt[zed], 0)
+        cdf <- cdf + sum(pf(x/df1a[!zed], df1a[!zed], df2a)*wt[!zed])
+        
+        return(cdf)
+      }
+      Fbar.pA <- 1 - pbar.A(x=T.obs[1], df1a=df1a, df2a=df.error, wt=wt.bar2)
+      
+      #Hypothesis test Type B
+      df1b <- meq:nrow(ui)
+                  
+      pbar.B <- function(x, df1b, df2b, wt) {
+        if (x <= 0) {
+          return(0)
+        }
+        zed <- df1b == 0
+        cdf <- ifelse(any(zed), wt[zed], 0)
+        cdf <- cdf + sum(pf(x/df1b[!zed], df1b[!zed], df2b)*wt[!zed])
+        
+        return(cdf)
+      }
+      Fbar.pB <- 1 - pbar.B(x=T.obs[2], df1b=df1b, df2b=df.error, wt=wt.bar)
+      
+      p.value[1:2] <- c(Fbar.pA, Fbar.pB)
     }      
   }
   
@@ -360,7 +400,7 @@ CSI <- function(model, data, ui=NULL, meq=0, weights=NULL, pvalue=TRUE,
               weights=w.model, ui=ui, meq=meq, R2=if(R2) {Rsq},
               par.h0=round(par.h0, 4),
               par.h1=round(par.h1, 4),
-              par.h2=round(optim.h1$unconstrainted.solution, 4))
+              par.h2=round(optim.h1$unconstrained.solution, 4))
   
   class(out) <- "CSI"
   
