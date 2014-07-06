@@ -34,31 +34,6 @@
 source('my.quadprog.R')
 
 
-y1 = c(9,9.5,9.75,10,13,9.5)
-y2 = c(11,10,10,11.75,10.5,15)
-y3 = c(13.25,11.50,12,13.5,11.50,NA)
-y4 = c(11.5,12,9,11.5,13.25,13)
-Data <- data.frame(y=c(y1,y2,y3,y4), group=factor(rep(1:4, each=6)))
-Data <- data.frame(y=c(y1,y2,y3), group=factor(rep(1:3, each=6)))
-
-# Amat for intercept + contr.treatment!
-ui <- rbind( c(0,  0, 1, 0),
-             c(0, -1, 1, 0),
-             c(0,  0, 0, 1),
-             c(0, -1, 0, 1))
-
-
-ui <- rbind( c(0, 1, 0),
-             c(0,-1, 1))
-
-CSI(model, data=Data, ui=ui, meq=0, weights=NULL, pvalue=TRUE, 
-    bootstrap=FALSE, R=100000, 
-    p.distr="N", df=7, R2=FALSE,
-    parallel="multicore", ncpus=4L, cl=NULL,                 
-    seed=1234, verbose=TRUE)
-
-
-
 CSI <- function(model, data, ui=NULL, meq=0, weights=NULL, pvalue=TRUE, 
                 bootstrap=FALSE, R=99999, 
                 double.bootstrap=FALSE, double.bootstrap.R=9999, 
