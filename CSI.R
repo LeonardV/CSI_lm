@@ -1,4 +1,4 @@
-#Code adjusted 06-20-2014 by L.Vanbrabant
+#Code adjusted 07-11-2014 by L.Vanbrabant
 #Parts of the code are taken from the R package ic.infer (Grömping, 2010)
 
 #For now, when bootstrap=FALSE, the p-value is only computed for the E-bar-square.
@@ -82,6 +82,8 @@ CSI <- function(model, data, ui=NULL, meq=0, weights=NULL, pvalue=TRUE,
   n = length(Y) 
   p = ncol(X)
   
+# if(attr(fit.lm$terms, "intercept") == 0) stop("include intercept")
+  
   #weigths specified
   if(!is.null(w.model)) {
     W <- diag(w.model)
@@ -97,13 +99,14 @@ CSI <- function(model, data, ui=NULL, meq=0, weights=NULL, pvalue=TRUE,
   ##fit models
   #fit h0  
   #Overall test
-  ui.eq <- cbind(rep(0, (p - 1)), diag(rep(1, p - 1)))
-  optim.h0 <- my.solve.QP(Dmat = XX, dvec = Xy, Amat = t(ui.eq), 
-                          meq=nrow(ui.eq))
-  optim.h0$solution[abs(optim.h0$solution) < sqrt(.Machine$double.eps)] <- 0L  
-  par.h0 <- optim.h0$solution
+#  ui.eq <- cbind(rep(0, (p - 1)), diag(rep(1, p - 1)))
+#  optim.h0 <- my.solve.QP(Dmat = XX, dvec = Xy, Amat = t(ui.eq), 
+#                          meq=nrow(ui.eq))
+#  optim.h0$solution[abs(optim.h0$solution) < sqrt(.Machine$double.eps)] <- 0L  
+#  par.h0 <- optim.h0$solution
   #RSS.h0 <- sum((Y - (X %*% par.h0))^2)        
-    RSS.h0 <- sum((Y - mean(predict(fit.lm)))^2)  
+    RSS.h0 <- sum((Y - mean(predict(fit.lm)))^2)
+    par.h0 <- rep(mean(predict(fit.lm)), p)
   
   #full model RSS (possibly constrained) 
   optim.h1 <- my.solve.QP(Dmat=XX, dvec=Xy, Amat=t(ui), meq=meq)
@@ -341,9 +344,9 @@ CSI <- function(model, data, ui=NULL, meq=0, weights=NULL, pvalue=TRUE,
   out <- list(T.obs=T.obs, iact=iact, p.value=p.value, 
               Rboot.tot=if(bootstrap) {Rboot.tot},
               weights=w.model, ui=ui, meq=meq, R2=if(R2) {Rsq},
-              par.h0=round(par.h0, 4),
-              par.h1=round(par.h1, 4),
-              par.h2=round(optim.h1$unconstrained.solution, 4))
+              par.h0=par.h0,
+              par.h1=par.h1,
+              par.h2=optim.h1$unconstrained.solution)
   
   class(out) <- "CSI"
   
