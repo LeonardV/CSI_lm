@@ -34,8 +34,10 @@
 source('my.quadprog.R')
 
 
+
 CSI <- function(model, data, ui=NULL, meq=0, weights=NULL, pvalue=TRUE, 
                 bootstrap=FALSE, R=99999, 
+                double.bootstrap=FALSE, double.bootstrap.R=9999, 
                 p.distr=c("N", "T", "Chi"), df=7, R2=FALSE,
                 parallel=c("no", "multicore", "snow"), ncpus=1L, cl=NULL,                 
                 seed=NULL, verbose=FALSE, ...) {
@@ -78,10 +80,7 @@ CSI <- function(model, data, ui=NULL, meq=0, weights=NULL, pvalue=TRUE,
   resid.lm <- fit.lm$residuals
   w.model <- fit.lm$weights
   n = length(Y) 
-  p = length(coef(fit.lm))
-  
-  #only models with an intercept are allowed (for now)
-  if(attr(fit.lm$terms, "intercept") == 0) stop("include intercept")
+  p = ncol(X)
   
   #weigths specified
   if(!is.null(w.model)) {
@@ -196,20 +195,30 @@ CSI <- function(model, data, ui=NULL, meq=0, weights=NULL, pvalue=TRUE,
       
       #only inequality constraints 
       if (meq==0) {
-        wt.bar <- ic.infer:::ic.weights(ui %*% cov %*% t(ui)) 
+        if(qr(ui)$rank < nrow(ui)) {
+          stop("Matrix ui must have full row-rank: set bootstrap=TRUE")
+        }else {
+          wt.bar <- ic.infer:::ic.weights(ui %*% cov %*% t(ui)) 
+         }  
       }
       #equality and inequality constraints
       else if (meq > 0) {
-        wt.bar <- ic.infer:::ic.weights(solve(solve(ui %*% cov %*% t(ui))[-(1:meq),-(1:meq)])) 
+        if(qr(ui)$rank < nrow(ui)) {
+          stop("Matrix ui must have full row-rank: set bootstrap=TRUE")
+        }else {
+          wt.bar <- ic.infer:::ic.weights(solve(solve(ui %*% cov %*% t(ui))[-(1:meq),-(1:meq)]))  
+        }    
       }
       
       ##Compute p-values for hypothesis test Type A, see Silvapulle and Sen, 
       #2005, p99-100 or
-      wt.bar2=rev(wt.bar)
-      df1a=(((length(par.h1)-1) - nrow(ui)):((length(par.h1)-1) - meq))  
-      q=nrow(ui) - meq
-      i=0:q
-      df2a=(n-p+q-i)
+      wt.bar2 = rev(wt.bar)
+      r = qr(ui.eq)$rank
+      q = qr(ui)$rank - meq 
+      #df1a=(((length(par.h1)-1) - nrow(ui)):((length(par.h1)-1) - meq))  
+      i = 0:q
+      df1a = r-q+i
+      df2a = n-p+q-i
       
       #These are adjusted functions of the pbetabar() function from the 
       #ic.infer package.
