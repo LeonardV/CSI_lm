@@ -1,14 +1,11 @@
-#Code adjusted 07-11-2014 by L.Vanbrabant
-#Parts of the code are taken from the R package ic.infer (Grömping, 2010)
+# Code adjusted 09-19-2014 by L.Vanbrabant
+# Parts of the code are taken from the R package ic.infer (Grömping, 2010)
+# 
 
-#For now, when bootstrap=FALSE, the p-value is only computed for the E-bar-square.
-
-##To do##
-#add equality constraints to null-distribution (done)
-#fix for no intercept model
-#add LRT p-value
-#add p-value for Fbar (done)
-#add confidence interval constrained estimates
+## to do ##
+# add confidence interval constrained estimates
+# add residual bootstrap
+# compute bootstrapped std. errors
 
 ##############################
 ## explaining the arguments ##
@@ -33,32 +30,33 @@
 
 source('my.quadprog.R')
 
-
-
 CSI <- function(model, data, ui=NULL, meq=0, weights=NULL, pvalue=TRUE, 
                 bootstrap=FALSE, R=99999, 
                 double.bootstrap=FALSE, double.bootstrap.R=9999, 
-                p.distr=c("N", "T", "Chi"), df=7, R2=FALSE,
+                p.distr=c("N", "T", "Chi"), df=7, R2=TRUE,
                 parallel=c("no", "multicore", "snow"), ncpus=1L, cl=NULL,                 
                 seed=NULL, verbose=FALSE, ...) {
   
-  #checks
+  # checks
+  if(qr(ui)$rank < nrow(ui)) {
+    stop("Matrix ui must have full row-rank.")
+  }  
   parallel <- tolower(parallel)
   stopifnot(parallel %in% c("no", "multicore", "snow"),
             p.distr %in% c("N", "T", "Chi"))
   
   if(missing(p.distr)) { p.distr <- "N" }
   
-  if(!is.data.frame(data)) stop("\n The data should be a dataframe.") 
-  if(is.null(ui)) stop("\n No constraints matrix has been specified.")
-  if(meq == nrow(ui)) stop("Test not applicable with equality restrictions only.")
+  if(!is.data.frame(data)) stop("the data should be a dataframe.") 
+  if(is.null(ui)) stop("no constraints matrix has been specified.")
+  if(meq == nrow(ui)) stop("test not applicable with equality restrictions only.")
   
   T.obs <- rep(as.numeric(NA), 4)
   p.value <- rep(as.numeric(NA), 4)
   Rboot.tot <- as.numeric(NA)
   
-  #prepare for parallel processing
-  #only used when bootstrap=TRUE
+  # prepare for parallel processing
+  # only used when bootstrap=TRUE
   if(missing(parallel)) parallel <- "no"
   
   parallel <- match.arg(parallel)
@@ -72,7 +70,7 @@ CSI <- function(model, data, ui=NULL, meq=0, weights=NULL, pvalue=TRUE,
       ncpus <- 1L
   }
   
-  #Fit model and extract 
+  # fit model
   fit.lm <- lm(as.formula(model), data, weights=weights)
   mfit <- fit.lm$model
   Y <- model.response(mfit)
@@ -82,70 +80,68 @@ CSI <- function(model, data, ui=NULL, meq=0, weights=NULL, pvalue=TRUE,
   n = length(Y) 
   p = ncol(X)
   
-# if(attr(fit.lm$terms, "intercept") == 0) stop("include intercept")
-  
-  #weigths specified
+  # weigths specified
   if(!is.null(w.model)) {
     W <- diag(w.model)
     XX <- t(X) %*% W %*% X
     Xy <- t(X) %*% W %*% Y
   }
-  #no weights specified
+  # no weights specified
   else {
     XX <- crossprod(X) 
     Xy <- t(X) %*% Y   
   }
   
-  ##fit models
-  #fit h0  
-  #Overall test
-#  ui.eq <- cbind(rep(0, (p - 1)), diag(rep(1, p - 1)))
+  # fit models #
+  # fit h0  
+  # Overall test
+  ui.eq <- cbind(rep(0, (p - 1)), diag(rep(1, p - 1)))
 #  optim.h0 <- my.solve.QP(Dmat = XX, dvec = Xy, Amat = t(ui.eq), 
 #                          meq=nrow(ui.eq))
 #  optim.h0$solution[abs(optim.h0$solution) < sqrt(.Machine$double.eps)] <- 0L  
 #  par.h0 <- optim.h0$solution
-  #RSS.h0 <- sum((Y - (X %*% par.h0))^2)        
-    RSS.h0 <- sum((Y - mean(predict(fit.lm)))^2)
-    par.h0 <- rep(mean(predict(fit.lm)), p)
+#  RSS.h0 <- sum((Y - (X %*% par.h0))^2)        
+   RSS.h0 <- sum((Y - mean(predict(fit.lm)))^2)
+   par.h0 <- rep(mean(predict(fit.lm)), p)
   
-  #full model RSS (possibly constrained) 
+  # full model RSS (possibly constrained) 
   optim.h1 <- my.solve.QP(Dmat=XX, dvec=Xy, Amat=t(ui), meq=meq)
   optim.h1$solution[abs(optim.h1$solution) < sqrt(.Machine$double.eps)] <- 0L  
   par.h1 <- optim.h1$solution
     RSS.h1 <- sum((Y - (X%*%par.h1))^2)
   
-  #number of active order constraints
+  # number of active order constraints
   iact <- optim.h1$iact 
   
-  #completely unconstrained RSS (not always the same...)
+  # completely unconstrained RSS (not always the same...)
   par.h2 <- optim.h1$unconstrained.solution
     RSS.h2 <- sum(resid(fit.lm)^2)
   
   s2 <- summary(fit.lm)$sigma^2
   df.error <- as.numeric(summary(fit.lm)$fstatistic[3])
   
-  #compute the F-bar test-statistic
+  # compute the F-bar test-statistic
   T.obs[1] <- (RSS.h0 - RSS.h1) / s2
   T.obs[2] <- (RSS.h1 - RSS.h2) / s2
   #T.obs[1] <- t(par.h1 - par.h0) %*% solve(vcov(fit.lm), par.h1 - par.h0)
   #T.obs[2] <- t(par.h2 - par.h1) %*% solve(vcov(fit.lm), par.h2 - par.h1)
     
-  #Compute the E-square-bar test-statistic. 
+  # compute the E-square-bar test-statistic. 
   T.obs[3] <- (RSS.h0 - RSS.h1) / RSS.h0
   T.obs[4] <- (RSS.h1 - RSS.h2) / RSS.h1
   
-  #Fix negative and very small values to zero? 
+  # fix negative and very small values to zero? 
   ind.zero <- which(T.obs < 1e-14) 
   T.obs <- replace(T.obs, ind.zero, 0)  
   
-  #Compute R-square for models with and without weights and with and without 
-  #intercept
+  # compute R-square for models with and without weights and with and without 
+  # intercept
   Rsq <- NULL
   
   if(R2) {
-    #constrained residuals
+    # constrained residuals
     residuals <- Y - (X %*% par.h1)
-    #Code taken from package ic.infer
+    # code taken from package ic.infer
     Rsq <- 1 - sum(residuals^2) / sum((Y - mean(Y))^2)
     if(is.null(weights(fit.lm)) && !attr(fit.lm$terms, "intercept")) 
       Rsq <- 1 - sum(residuals^2) / sum(Y^2)
@@ -156,7 +152,7 @@ CSI <- function(model, data, ui=NULL, meq=0, weights=NULL, pvalue=TRUE,
       Rsq <- 1 - sum(weights(fit.lm) * residuals^2) / sum(weights(fit.lm) * Y^2)
   }
   
-  ##Compute p-value based on bootstrapping or mixing weights  
+  # compute p-value based on bootstrapping or mixing weights  
   if(pvalue) {
     if(bootstrap) {    
       T.boot <- matrix(as.numeric(NA), R, 4)
@@ -168,10 +164,10 @@ CSI <- function(model, data, ui=NULL, meq=0, weights=NULL, pvalue=TRUE,
           runif(1)              
         RNGstate <- .Random.seed
         
-        #bootstrapped p-value based on normal-, T-, or Chi-square distribution
-        #Additional distributions can be added if needed.
-        #The null-distribution does not depend on mu and sigma. So any value
-        #can be used as long as the same values are used over all bootstrap runs.
+        # bootstrapped p-value based on normal-, T-, or Chi-square distribution
+        # Additional distributions can be added if needed.
+        # The null-distribution does not depend on mu and sigma. So any value
+        # can be used as long as the same values are used over all bootstrap runs.
         if(p.distr=="N")
           Yboot <- rnorm(n=n, 0, 1) 
         else if(p.distr=="T")
@@ -195,36 +191,27 @@ CSI <- function(model, data, ui=NULL, meq=0, weights=NULL, pvalue=TRUE,
       }
     }else if(!bootstrap){
       cov <- vcov(fit.lm)
-      
-      #only inequality constraints 
+      # only inequality constraints 
       if (meq==0) {
-        if(qr(ui)$rank < nrow(ui)) {
-          stop("Matrix ui must have full row-rank: set bootstrap=TRUE")
-        }else {
-          wt.bar <- ic.infer:::ic.weights(ui %*% cov %*% t(ui)) 
-         }  
+        wt.bar <- ic.infer:::ic.weights(ui %*% cov %*% t(ui)) 
       }
-      #equality and inequality constraints
+      # equality and inequality constraints
       else if (meq > 0) {
-        if(qr(ui)$rank < nrow(ui)) {
-          stop("Matrix ui must have full row-rank: set bootstrap=TRUE")
-        }else {
-          wt.bar <- ic.infer:::ic.weights(solve(solve(ui %*% cov %*% t(ui))[-(1:meq),-(1:meq)]))  
-        }    
+        wt.bar <- ic.infer:::ic.weights(solve(solve(ui %*% cov %*% t(ui))[-(1:meq),-(1:meq)]))  
       }
       
-      ##Compute p-values for hypothesis test Type A, see Silvapulle and Sen, 
-      #2005, p99-100 or
+      # Compute p-values for hypothesis test Type A, see Silvapulle and Sen, 
+      # 2005, p99-100 or
       wt.bar2 = rev(wt.bar)
       r = qr(ui.eq)$rank
       q = qr(ui)$rank - meq 
-      #df1a=(((length(par.h1)-1) - nrow(ui)):((length(par.h1)-1) - meq))  
+      # df1a=(((length(par.h1)-1) - nrow(ui)):((length(par.h1)-1) - meq))  
       i = 0:q
       df1a = r-q+i
       df2a = n-p+q-i
       
-      #These are adjusted functions of the pbetabar() function from the 
-      #ic.infer package.
+      # these are adjusted functions of the pbetabar() function from the 
+      # ic.infer package.
       pbar.A <- function(x, df1a, df2a, wt) {
         if (x <= 0) { 
           return(0)
@@ -237,7 +224,7 @@ CSI <- function(model, data, ui=NULL, meq=0, weights=NULL, pvalue=TRUE,
       }
       Ebar.pA <- 1 - pbar.A(x=T.obs[3], df1a=df1a, df2a=df2a, wt=wt.bar2)
       
-      #Hypothesis test Type B
+      # hypothesis test Type B
       df1b <- meq:nrow(ui)
       df2b <- df.error
       
@@ -287,7 +274,7 @@ CSI <- function(model, data, ui=NULL, meq=0, weights=NULL, pvalue=TRUE,
     }      
   }
   
-  #When a bootstrapped p-value is computed and parallel processing is used.
+  # when a bootstrapped p-value is computed and parallel processing is used.
   if(bootstrap){
     RR <- sum(R)
     res <- if (ncpus > 1L && (have_mc || have_snow)) {
@@ -317,8 +304,7 @@ CSI <- function(model, data, ui=NULL, meq=0, weights=NULL, pvalue=TRUE,
       }
     }
     
-       
-    #remove NA values / Inf values
+    # remove NA values / Inf values
     na.boot.ind   <- which(is.na(T.boot), arr.ind = TRUE)
     inf.boot.ind  <- which(T.boot == Inf, arr.ind = TRUE)
     ind <- c(na.boot.ind[,1], inf.boot.ind[,1])
@@ -336,10 +322,8 @@ CSI <- function(model, data, ui=NULL, meq=0, weights=NULL, pvalue=TRUE,
     p.value[4]  <- sum(T.boot[,4] > T.obs[4]) / Rboot.tot
   }
   
-  #Assign names to the output
   names(T.obs) <- c("Fbar.A","Fbar.B","Ebar^2.A","Ebar^2.B")
   names(p.value) <- c("Fbar.A","Fbar.B","Ebar^2.A","Ebar^2.B")
-  
   
   out <- list(T.obs=T.obs, iact=iact, p.value=p.value, 
               Rboot.tot=if(bootstrap) {Rboot.tot},
