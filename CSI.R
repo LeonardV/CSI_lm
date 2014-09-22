@@ -10,87 +10,91 @@
 ##############################
 ## explaining the arguments ##
 ##############################
-#model                : A description of the user-specified model. Typically, the model is described using the lm model syntax.
-#data                 : Data frame containing the observed variables used in the model.
-#ui                   : Matrix (or vector in case of one single restriction only) defining the left-hand side of the restriction, ui%*%beta >= ci, where beta is the parameter vector.
-#meq                  : Integer number (default 0) giving the number of rows of ui that are used for equality restrictions instead of inequality restrictions.
-#weights              : An optional vector of weights to be used in the fitting process. Should be NULL or a numeric vector. If non-NULL, weighted least squares is used with weights weights (that is, minimizing sum(w*e^2)); otherwise ordinary least squares is used.
-#pvalue               : If TRUE (default), a p-value is computed
-#bootstrap            : If TRUE, the p-value is computed based on simulation. Otherwise, the p-value is computed based on the calculated weights.
-#R                    : Integer; number of bootstrap draws. The default value is set to 99999.
-#p.distr              : Assumed error-distribution (normal by default, "N") for computing a bootstrapped p-value. Two other options are the t-distribution ("T") and the chi^2-distributions ("Chi").
-#df                   : Degrees of freedom, when p.distr="T" of p.distr="Chi".
-#R2                   : Computes the R-squared based on the constrained residuals.
-#parallel             : The type of parallel operation to be used (if any). If missing, the default is set "no".
-#ncpus                : Integer: number of processes to be used in parallel operation: typically one would chose this to the number of available cores.
-#cl                   : An optional parallel or snow cluster for use if parallel = "snow". If not supplied, a cluster on the local machine is created for the duration of the InformativeTesting call.
-#seed                 : Seed value
-#verbose              : Logical; if TRUE, information is shown at each bootstrap draw.
-#...                  : Currently not used. 
+# model               : A description of the user-specified model. Typically, the model is described using the lm model syntax.
+# data                : Data frame containing the observed variables used in the model.
+# ui                  : Matrix (or vector in case of one single restriction only) defining the left-hand side of the restriction, ui%*%beta >= ci, where beta is the parameter vector.
+# meq                 : Integer number (default 0) giving the number of rows of ui that are used for equality restrictions instead of inequality restrictions.
+# pvalue              : If TRUE (default), a p-value is computed
+# weights             : The procedure of compuinge the p-value. If "none" (first approach), the p-value is computed directly without first calculating the mixing weights. 
+#                       If "boot" (second approach) the weights are computed based on a simulation procedure. 
+#                       If "mvtnorm" (third approach), the weights are computed based on the multivariate normal probability distribution. 
+# R                   : Integer; number of bootstrap draws. The default value is set to 99999.
+# double.bootstrap    : If a double bootstrap procedure should be used. (can be savely ignored in linear models)
+# double.bootstrap.R  : Integer; number of double bootstrap draws. The default value is set to 9999
+# p.distr             : Assumed error-distribution (normal by default, "N") for computing a bootstrapped p-value. Two other options are the t-distribution ("T") and the chi^2-distributions ("Chi").
+# df                  : Degrees of freedom, when p.distr="T" of p.distr="Chi".
+# R2                  : Computes the R-squared based on the constrained residuals.
+# parallel            : The type of parallel operation to be used (if any). If missing, the default is set "no".
+# ncpus               : Integer: number of processes to be used in parallel operation: typically one would chose this to the number of available cores.
+# cl                  : An optional parallel or snow cluster for use if parallel = "snow". If not supplied, a cluster on the local machine is created for the duration of the InformativeTesting call.
+# seed                : Seed value
+# verbose             : Logical; if TRUE, information is shown at each bootstrap draw.
+# ...                 : Currently not used. 
 
 source('my.quadprog.R')
 
-CSI <- function(model, data, ui=NULL, meq=0, weights=NULL, pvalue=TRUE, 
-                bootstrap=FALSE, R=99999, 
-                double.bootstrap=FALSE, double.bootstrap.R=9999, 
-                p.distr=c("N", "T", "Chi"), df=7, R2=TRUE,
-                parallel=c("no", "multicore", "snow"), ncpus=1L, cl=NULL,                 
-                seed=NULL, verbose=FALSE, ...) {
+CSI <- function(model, data, ui = NULL, meq = 0, pvalue = TRUE, 
+                weights = c("none", "boot", "mvtnorm"), R=99999, 
+                double.bootstrap = FALSE, double.bootstrap.R = 9999, 
+                p.distr = c("N", "T", "Chi"), df = 7, R2 = TRUE,
+                parallel = c("no", "multicore", "snow"), ncpus = 1L, cl = NULL,                 
+                seed = NULL, verbose = FALSE, ...) {
   
   # checks
-  if(qr(ui)$rank < nrow(ui)) {
+  if (qr(ui)$rank < nrow(ui)) {
     stop("Matrix ui must have full row-rank.")
   }  
   parallel <- tolower(parallel)
   stopifnot(parallel %in% c("no", "multicore", "snow"),
-            p.distr %in% c("N", "T", "Chi"))
+            p.distr %in% c("N", "T", "Chi"),
+            weights %in% c("none", "boot", "mvtnorm"))          
   
-  if(missing(p.distr)) { p.distr <- "N" }
+  if (missing(p.distr)) { p.distr <- "N" }
+  if (missing(weights)) { weights <- "boot" }
   
-  if(!is.data.frame(data)) stop("the data should be a dataframe.") 
-  if(is.null(ui)) stop("no constraints matrix has been specified.")
-  if(meq == nrow(ui)) stop("test not applicable with equality restrictions only.")
+  if (!is.data.frame(data)) stop("the data should be a dataframe.") 
+  if (is.null(ui)) stop("no constraints matrix has been specified.")
+  if (meq == nrow(ui)) stop("test not applicable with equality restrictions only.")
   
   T.obs <- rep(as.numeric(NA), 4)
   p.value <- rep(as.numeric(NA), 4)
   Rboot.tot <- as.numeric(NA)
   
   # prepare for parallel processing
-  # only used when bootstrap=TRUE
-  if(missing(parallel)) parallel <- "no"
+  if (missing(parallel)) parallel <- "no"
   
   parallel <- match.arg(parallel)
   have_mc <- have_snow <- FALSE
-  if(parallel != "no" && ncpus > 1L) {
-    if(parallel == "multicore") 
+  if (parallel != "no" && ncpus > 1L) {
+    if (parallel == "multicore") 
       have_mc <- .Platform$OS.type != "windows"
-    else if(parallel == "snow") 
+    else if (parallel == "snow") 
       have_snow <- TRUE
-    if(!have_mc && !have_snow) 
+    if (!have_mc && !have_snow) 
       ncpus <- 1L
   }
   
   # fit model
-  fit.lm <- lm(as.formula(model), data, weights=weights)
+  fit.lm <- lm(as.formula(model), data)#, weights=weights)
   mfit <- fit.lm$model
   Y <- model.response(mfit)
   X <- model.matrix(fit.lm)[,,drop=FALSE]
   resid.lm <- fit.lm$residuals
-  w.model <- fit.lm$weights
+  #w.model <- fit.lm$weights
   n = length(Y) 
   p = ncol(X)
   
   # weigths specified
-  if(!is.null(w.model)) {
-    W <- diag(w.model)
-    XX <- t(X) %*% W %*% X
-    Xy <- t(X) %*% W %*% Y
-  }
+#  if (!is.null(w.model)) {
+#    W <- diag(w.model)
+#    XX <- t(X) %*% W %*% X
+#    Xy <- t(X) %*% W %*% Y
+#  }
   # no weights specified
-  else {
+#  else {
     XX <- crossprod(X) 
     Xy <- t(X) %*% Y   
-  }
+#  }
   
   # fit models #
   # fit h0  
@@ -138,70 +142,140 @@ CSI <- function(model, data, ui=NULL, meq=0, weights=NULL, pvalue=TRUE,
   # intercept
   Rsq <- NULL
   
-  if(R2) {
+  if (R2) {
     # constrained residuals
     residuals <- Y - (X %*% par.h1)
     # code taken from package ic.infer
     Rsq <- 1 - sum(residuals^2) / sum((Y - mean(Y))^2)
-    if(is.null(weights(fit.lm)) && !attr(fit.lm$terms, "intercept")) 
+    if (is.null(weights(fit.lm)) && !attr(fit.lm$terms, "intercept")) 
       Rsq <- 1 - sum(residuals^2) / sum(Y^2)
-    else if(attr(fit.lm$terms, "intercept") && !is.null(weights(fit.lm))) 
-      Rsq <- 1 - sum(weights(fit.lm) * residuals^2) / 
-      sum(weights(fit.lm) * (Y - weighted.mean(Y, w = w.model))^2)
-    else if(!(attr(fit.lm$terms, "intercept") || is.null(weights(fit.lm)))) 
+#    else if (attr(fit.lm$terms, "intercept") && !is.null(weights(fit.lm))) 
+#      Rsq <- 1 - sum(weights(fit.lm) * residuals^2) / 
+#      sum(weights(fit.lm) * (Y - weighted.mean(Y, w = w.model))^2)
+    else if (!(attr(fit.lm$terms, "intercept") || is.null(weights(fit.lm)))) 
       Rsq <- 1 - sum(weights(fit.lm) * residuals^2) / sum(weights(fit.lm) * Y^2)
   }
   
   # compute p-value based on bootstrapping or mixing weights  
-  if(pvalue) {
-    if(bootstrap) {    
+  if (pvalue) {
+    if (weights == "none") {    
       T.boot <- matrix(as.numeric(NA), R, 4)
-      
+            
       fn <- function(b) { 
         if (verbose) cat("R =", b)
-        if(!is.null(seed)) set.seed(seed + b)
-        if(!exists(".Random.seed", envir = .GlobalEnv))
-          runif(1)              
+        if (!is.null(seed)) set.seed(seed + b)
+        if (!exists(".Random.seed", envir = .GlobalEnv))
+          runif (1)              
         RNGstate <- .Random.seed
         
         # bootstrapped p-value based on normal-, T-, or Chi-square distribution
         # Additional distributions can be added if needed.
         # The null-distribution does not depend on mu and sigma. So any value
         # can be used as long as the same values are used over all bootstrap runs.
-        if(p.distr=="N")
+        if (p.distr=="N")
           Yboot <- rnorm(n=n, 0, 1) 
-        else if(p.distr=="T")
+        else if (p.distr=="T")
           Yboot <- rt(n=n, df=df)
-        else if(p.distr=="Chi")
+        else if (p.distr=="Chi")
           Yboot <- rchisq(n=n, df=df)
         
         boot.data <- data.frame(Yboot, X[,-1])
         
-        out <- CSI(model=formula(boot.data), data=boot.data, ui=ui, meq=meq, 
-                   weights=weights, pvalue=FALSE, bootstrap=FALSE, R=0L, 
-                   p.distr=p.distr, df=df, R2=R2,
-                   parallel="no", ncpus=1L, cl=NULL,
-                   seed=seed, verbose=verbose) 
+        out <- CSI(model = formula(boot.data), data = boot.data, ui = ui, 
+                   meq = meq, weights = "none", 
+                   pvalue = FALSE, R = 0L, 
+                   p.distr = p.distr, df = df, R2 = R2,
+                   parallel = "no", ncpus = 1L, cl = NULL,
+                   seed = seed, verbose = verbose) 
         
-        if(verbose) cat("  ... ... T.obs  = ", out$T.obs, "\n")
+        if (verbose) cat("  ... ... T.obs  = ", out$T.obs, "\n")
         
         out <- out$T.obs
         
-        out
+        out 
       }
-    }else if(!bootstrap){
-      cov <- vcov(fit.lm)
-      # only inequality constraints 
-      if (meq==0) {
-        wt.bar <- ic.infer:::ic.weights(ui %*% cov %*% t(ui)) 
-      }
-      # equality and inequality constraints
-      else if (meq > 0) {
-        wt.bar <- ic.infer:::ic.weights(solve(solve(ui %*% cov %*% t(ui))[-(1:meq),-(1:meq)]))  
+    } else if (weights == "mvtnorm" | weights == "boot"){
+            
+      if (weights == "boot") {
+        par.pos <- matrix(as.numeric(NA), R, nrow(ui.eq))
+        
+        fn <- function(b) { 
+          if (verbose) cat("R =", b, "\n")
+          if (!is.null(seed)) set.seed(seed + b)
+          if (!exists(".Random.seed", envir = .GlobalEnv))
+            runif (1)              
+          RNGstate <- .Random.seed
+          
+          # bootstrapped p-value based on normal-, T-, or Chi-square distribution
+          # Additional distributions can be added if needed.
+          # The null-distribution does not depend on mu and sigma. So any value
+          # can be used as long as the same values are used over all bootstrap runs.
+          if (p.distr=="N")
+            Yboot <- rnorm(n=n, 0, 1) 
+          else if (p.distr=="T")
+            Yboot <- rt(n=n, df=df)
+          else if (p.distr=="Chi")
+            Yboot <- rchisq(n=n, df=df)
+          
+          boot.data <- data.frame(Yboot, X[,-1])
+          
+          out <- CSI(model = formula(boot.data), data = boot.data, ui = ui.eq, 
+                     meq = meq, weights = "none", 
+                     pvalue = FALSE, R = 0L, 
+                     p.distr = p.distr, df = df, R2 = R2,
+                     parallel = "no", ncpus = 1L, cl = NULL,
+                     seed = seed, verbose = verbose) 
+          
+          par <- out$par.h1
+          idx <- sapply(1:nrow(ui.eq), function(x) which(ui.eq[x,] == 1))
+          out <- par[idx]
+          
+          out 
+        }
+        
+        RR <- sum(R)
+        res <- if (ncpus > 1L && (have_mc || have_snow)) {
+          if (have_mc) {
+            parallel::mclapply(seq_len(RR), fn, mc.cores = ncpus)
+          }
+          else if (have_snow) {
+            if (is.null(cl)) {
+              cl <- parallel::makePSOCKcluster(rep("localhost", ncpus)) 
+              if (RNGkind()[1L] == "L'Ecuyer-CMRG") 
+                parallel::clusterSetRNGStream(cl) 
+              res <- parallel::parLapply(cl, seq_len(RR), fn)  
+              parallel::stopCluster(cl) 
+              res
+            }
+            else parallel::parLapply(cl, seq_len(RR), fn)
+          }
+        } 
+        else lapply(seq_len(RR), fn)
+        
+        error.idx <- integer(0)
+        for (b in seq_len(R)) {
+          if (!is.null(res[[b]])) {
+            par.pos[b, 1:nrow(ui.eq)] <- res[[b]]
+          } else {
+            error.idx <- c(error.idx, b)
+          }
+        }
+        sum_par_pos <- sapply(1:R, function(x) sum(par.pos[x,] > 0L))
+        wt.bar <- sapply(0:nrow(ui.eq), function(x) sum(sum_par_pos == x) / R)  
       }
       
-      # Compute p-values for hypothesis test Type A, see Silvapulle and Sen, 
-      # 2005, p99-100 or
+      if (weights == "mvtnorm") {
+        cov <- vcov(fit.lm)
+        # only inequality constraints 
+        if (meq==0) {
+          wt.bar <- ic.infer:::ic.weights(ui %*% cov %*% t(ui)) 
+        }
+        # equality and inequality constraints
+        else if (meq > 0) {
+          wt.bar <- ic.infer:::ic.weights(solve(solve(ui %*% cov %*% t(ui))[-(1:meq),-(1:meq)]))  
+        }
+      }
+      
       wt.bar2 = rev(wt.bar)
       r = qr(ui.eq)$rank
       q = qr(ui)$rank - meq 
@@ -275,7 +349,7 @@ CSI <- function(model, data, ui=NULL, meq=0, weights=NULL, pvalue=TRUE,
   }
   
   # when a bootstrapped p-value is computed and parallel processing is used.
-  if(bootstrap){
+  if (weights == "none") {
     RR <- sum(R)
     res <- if (ncpus > 1L && (have_mc || have_snow)) {
       if (have_mc) {
@@ -303,34 +377,36 @@ CSI <- function(model, data, ui=NULL, meq=0, weights=NULL, pvalue=TRUE,
         error.idx <- c(error.idx, b)
       }
     }
-    
-    # remove NA values / Inf values
-    na.boot.ind   <- which(is.na(T.boot), arr.ind = TRUE)
-    inf.boot.ind  <- which(T.boot == Inf, arr.ind = TRUE)
-    ind <- c(na.boot.ind[,1], inf.boot.ind[,1])
-    
-    ind.unique <- unique(ind)
-    Rboot.tot <- (R - length(ind.unique))
-    
-    if(length(ind.unique) > 0) 
-      T.boot <- T.boot[-ind.unique,]
-    
-    #compue bootstrap p-value
-    p.value[1]  <- sum(T.boot[,1] > T.obs[1]) / Rboot.tot
-    p.value[2]  <- sum(T.boot[,2] > T.obs[2]) / Rboot.tot
-    p.value[3]  <- sum(T.boot[,3] > T.obs[3]) / Rboot.tot
-    p.value[4]  <- sum(T.boot[,4] > T.obs[4]) / Rboot.tot
+      # remove NA values / Inf values
+      na.boot.ind   <- which(is.na(T.boot), arr.ind = TRUE)
+      inf.boot.ind  <- which(T.boot == Inf, arr.ind = TRUE)
+      ind <- c(na.boot.ind[,1], inf.boot.ind[,1])
+      
+      ind.unique <- unique(ind)
+      Rboot.tot <- (R - length(ind.unique))
+      
+      if (length(ind.unique) > 0) { 
+        T.boot <- T.boot[-ind.unique,]
+      }
+      
+      #compue bootstrap p-value
+      p.value[1]  <- sum(T.boot[,1] > T.obs[1]) / Rboot.tot
+      p.value[2]  <- sum(T.boot[,2] > T.obs[2]) / Rboot.tot
+      p.value[3]  <- sum(T.boot[,3] > T.obs[3]) / Rboot.tot
+      p.value[4]  <- sum(T.boot[,4] > T.obs[4]) / Rboot.tot
   }
   
-  names(T.obs) <- c("Fbar.A","Fbar.B","Ebar^2.A","Ebar^2.B")
-  names(p.value) <- c("Fbar.A","Fbar.B","Ebar^2.A","Ebar^2.B")
+  names(T.obs) <- c("Fbar.A","Fbar.B","E^2-bar.A","E^2-bar.B")
+  names(p.value) <- names(T.obs)
   
-  out <- list(T.obs=T.obs, iact=iact, p.value=p.value, 
-              Rboot.tot=if(bootstrap) {Rboot.tot},
-              weights=w.model, ui=ui, meq=meq, R2=if(R2) {Rsq},
-              par.h0=par.h0,
-              par.h1=par.h1,
-              par.h2=optim.h1$unconstrained.solution)
+  out <- list(T.obs = T.obs, iact = iact, p.value = p.value, 
+              Rboot.tot = if (weights == "none") { Rboot.tot },
+              ui = ui, meq = meq,
+              weights = if (weights != "none") { wt.bar },
+              R2 = if (R2) {Rsq},
+              par.h0 = par.h0,
+              par.h1 = par.h1,
+              par.h2 = optim.h1$unconstrained.solution)
   
   class(out) <- "CSI"
   
