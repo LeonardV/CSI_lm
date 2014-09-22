@@ -34,7 +34,7 @@
 source('my.quadprog.R')
 
 CSI <- function(model, data, ui = NULL, meq = 0, pvalue = TRUE, 
-                weights = c("none", "boot", "mvtnorm"), R=99999, 
+                weights = c("none", "boot", "mvtnorm"), R=9999, 
                 double.bootstrap = FALSE, double.bootstrap.R = 9999, 
                 p.distr = c("N", "T", "Chi"), df = 7, R2 = TRUE,
                 parallel = c("no", "multicore", "snow"), ncpus = 1L, cl = NULL,                 
