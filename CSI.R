@@ -6,6 +6,7 @@
 # add confidence interval constrained estimates
 # add residual bootstrap
 # compute bootstrapped std. errors
+# add weights p < 4
 
 ##############################
 ## explaining the arguments ##
@@ -34,7 +35,7 @@
 source('my.quadprog.R')
 
 CSI <- function(model, data, ui = NULL, meq = 0, pvalue = TRUE, 
-                weights = c("none", "boot", "mvtnorm"), R=9999, 
+                weights = c("none", "boot", "mvtnorm"), R=99999, 
                 double.bootstrap = FALSE, double.bootstrap.R = 9999, 
                 p.distr = c("N", "T", "Chi"), df = 7, R2 = TRUE,
                 parallel = c("no", "multicore", "snow"), ncpus = 1L, cl = NULL,                 
@@ -99,7 +100,8 @@ CSI <- function(model, data, ui = NULL, meq = 0, pvalue = TRUE,
   # fit models #
   # fit h0  
   # Overall test
-  ui.eq <- cbind(rep(0, (p - 1)), diag(rep(1, p - 1)))
+  ui.eq1 <- cbind(rep(0, (p - 1)), diag(rep(1, p - 1)))
+  ui.eq2 <- cbind(rep(0, (nrow(ui))), diag(rep(1, nrow(ui))))
 #  optim.h0 <- my.solve.QP(Dmat = XX, dvec = Xy, Amat = t(ui.eq), 
 #                          meq=nrow(ui.eq))
 #  optim.h0$solution[abs(optim.h0$solution) < sqrt(.Machine$double.eps)] <- 0L  
@@ -158,9 +160,10 @@ CSI <- function(model, data, ui = NULL, meq = 0, pvalue = TRUE,
   
   # compute p-value based on bootstrapping or mixing weights  
   if (pvalue) {
+    # bootstrapped p value
     if (weights == "none") {    
       T.boot <- matrix(as.numeric(NA), R, 4)
-            
+      
       fn <- function(b) { 
         if (verbose) cat("R =", b)
         if (!is.null(seed)) set.seed(seed + b)
@@ -194,10 +197,9 @@ CSI <- function(model, data, ui = NULL, meq = 0, pvalue = TRUE,
         
         out 
       }
-    } else if (weights == "mvtnorm" | weights == "boot"){
-            
+    } else if (weights == "mvtnorm" | weights == "boot") {
       if (weights == "boot") {
-        par.pos <- matrix(as.numeric(NA), R, nrow(ui.eq))
+        par.pos <- matrix(as.numeric(NA), R, nrow(ui.eq2))
         
         fn <- function(b) { 
           if (verbose) cat("R =", b, "\n")
@@ -219,15 +221,15 @@ CSI <- function(model, data, ui = NULL, meq = 0, pvalue = TRUE,
           
           boot.data <- data.frame(Yboot, X[,-1])
           
-          out <- CSI(model = formula(boot.data), data = boot.data, ui = ui.eq, 
-                     meq = meq, weights = "none", 
+          out <- CSI(model = formula(boot.data), data = boot.data, ui = ui.eq1, 
+                     meq = meq, weights = "boot", 
                      pvalue = FALSE, R = 0L, 
                      p.distr = p.distr, df = df, R2 = R2,
                      parallel = "no", ncpus = 1L, cl = NULL,
                      seed = seed, verbose = verbose) 
           
           par <- out$par.h1
-          idx <- sapply(1:nrow(ui.eq), function(x) which(ui.eq[x,] == 1))
+          idx <- sapply(1:nrow(ui.eq2), function(x) which(ui.eq2[x,] == 1))
           out <- par[idx]
           
           out 
@@ -255,16 +257,15 @@ CSI <- function(model, data, ui = NULL, meq = 0, pvalue = TRUE,
         error.idx <- integer(0)
         for (b in seq_len(R)) {
           if (!is.null(res[[b]])) {
-            par.pos[b, 1:nrow(ui.eq)] <- res[[b]]
+            par.pos[b, 1:nrow(ui.eq2)] <- res[[b]]
           } else {
             error.idx <- c(error.idx, b)
           }
         }
         sum_par_pos <- sapply(1:R, function(x) sum(par.pos[x,] > 0L))
-        wt.bar <- sapply(0:nrow(ui.eq), function(x) sum(sum_par_pos == x) / R)  
+        wt.bar <- sapply(0:nrow(ui.eq2), function(x) sum(sum_par_pos == x) / R)  
       }
-      
-      if (weights == "mvtnorm") {
+      else if (weights == "mvtnorm") {
         cov <- vcov(fit.lm)
         # only inequality constraints 
         if (meq==0) {
@@ -277,7 +278,7 @@ CSI <- function(model, data, ui = NULL, meq = 0, pvalue = TRUE,
       }
       
       wt.bar2 = rev(wt.bar)
-      r = qr(ui.eq)$rank
+      r = qr(ui.eq1)$rank
       q = qr(ui)$rank - meq 
       # df1a=(((length(par.h1)-1) - nrow(ui)):((length(par.h1)-1) - meq))  
       i = 0:q
@@ -349,7 +350,7 @@ CSI <- function(model, data, ui = NULL, meq = 0, pvalue = TRUE,
   }
   
   # when a bootstrapped p-value is computed and parallel processing is used.
-  if (weights == "none") {
+  if (weights == "none" & pvalue) {
     RR <- sum(R)
     res <- if (ncpus > 1L && (have_mc || have_snow)) {
       if (have_mc) {
@@ -402,7 +403,6 @@ CSI <- function(model, data, ui = NULL, meq = 0, pvalue = TRUE,
   out <- list(T.obs = T.obs, iact = iact, p.value = p.value, 
               Rboot.tot = if (weights == "none") { Rboot.tot },
               ui = ui, meq = meq,
-              weights = if (weights != "none") { wt.bar },
               R2 = if (R2) {Rsq},
               par.h0 = par.h0,
               par.h1 = par.h1,
