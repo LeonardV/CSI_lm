@@ -16,7 +16,7 @@
 # ui                  : Matrix (or vector in case of one single restriction only) defining the left-hand side of the restriction, ui%*%beta >= ci, where beta is the parameter vector.
 # meq                 : Integer number (default 0) giving the number of rows of ui that are used for equality restrictions instead of inequality restrictions.
 # pvalue              : If TRUE (default), a p-value is computed
-# weights             : The procedure of compuinge the p-value. If "none" (first approach), the p-value is computed directly without first calculating the mixing weights. 
+# weights             : The procedure of computing the p-value. If "none" (first approach), the p-value is computed directly without first calculating the mixing weights. 
 #                       If "boot" (second approach) the weights are computed based on a simulation procedure. 
 #                       If "mvtnorm" (third approach), the weights are computed based on the multivariate normal probability distribution. 
 # R                   : Integer; number of bootstrap draws. The default value is set to 99999.
