@@ -6,7 +6,7 @@
 # add confidence interval constrained estimates
 # add residual bootstrap
 # compute bootstrapped std. errors
-# add weights p < 4
+# add mix.weights p < 4
 
 ##############################
 ## explaining the arguments ##
@@ -16,7 +16,7 @@
 # ui                  : Matrix (or vector in case of one single restriction only) defining the left-hand side of the restriction, ui%*%beta >= ci, where beta is the parameter vector.
 # meq                 : Integer number (default 0) giving the number of rows of ui that are used for equality restrictions instead of inequality restrictions.
 # pvalue              : If TRUE (default), a p-value is computed
-# weights             : The procedure of computing the p-value. If "none" (first approach), the p-value is computed directly without first calculating the mixing weights. 
+# mix.weights         : The procedure of compuinge the p-value. If "none" (first approach), the p-value is computed directly without first calculating the mixing weights. 
 #                       If "boot" (second approach) the weights are computed based on a simulation procedure. 
 #                       If "mvtnorm" (third approach), the weights are computed based on the multivariate normal probability distribution. 
 # R                   : Integer; number of bootstrap draws. The default value is set to 99999.
@@ -35,7 +35,7 @@
 source('my.quadprog.R')
 
 CSI <- function(model, data, ui = NULL, meq = 0, pvalue = TRUE, 
-                weights = c("none", "boot", "mvtnorm"), R=99999, 
+                mix.weights = c("none", "boot", "mvtnorm"), R=99999, 
                 double.bootstrap = FALSE, double.bootstrap.R = 9999, 
                 p.distr = c("N", "T", "Chi"), df = 7, R2 = TRUE,
                 parallel = c("no", "multicore", "snow"), ncpus = 1L, cl = NULL,                 
@@ -48,10 +48,10 @@ CSI <- function(model, data, ui = NULL, meq = 0, pvalue = TRUE,
   parallel <- tolower(parallel)
   stopifnot(parallel %in% c("no", "multicore", "snow"),
             p.distr %in% c("N", "T", "Chi"),
-            weights %in% c("none", "boot", "mvtnorm"))          
+            mix.weights %in% c("none", "boot", "mvtnorm"))          
   
   if (missing(p.distr)) { p.distr <- "N" }
-  if (missing(weights)) { weights <- "boot" }
+  if (missing(mix.weights)) { mix.weights <- "boot" }
   
   if (!is.data.frame(data)) stop("the data should be a dataframe.") 
   if (is.null(ui)) stop("no constraints matrix has been specified.")
@@ -154,14 +154,14 @@ CSI <- function(model, data, ui = NULL, meq = 0, pvalue = TRUE,
 #    else if (attr(fit.lm$terms, "intercept") && !is.null(weights(fit.lm))) 
 #      Rsq <- 1 - sum(weights(fit.lm) * residuals^2) / 
 #      sum(weights(fit.lm) * (Y - weighted.mean(Y, w = w.model))^2)
-    else if (!(attr(fit.lm$terms, "intercept") || is.null(weights(fit.lm)))) 
-      Rsq <- 1 - sum(weights(fit.lm) * residuals^2) / sum(weights(fit.lm) * Y^2)
+#    else if (!(attr(fit.lm$terms, "intercept") || is.null(weights(fit.lm)))) 
+#      Rsq <- 1 - sum(weights(fit.lm) * residuals^2) / sum(weights(fit.lm) * Y^2)
   }
   
   # compute p-value based on bootstrapping or mixing weights  
   if (pvalue) {
     # bootstrapped p value
-    if (weights == "none") {    
+    if (mix.weights == "none") {    
       T.boot <- matrix(as.numeric(NA), R, 4)
       
       fn <- function(b) { 
@@ -185,7 +185,7 @@ CSI <- function(model, data, ui = NULL, meq = 0, pvalue = TRUE,
         boot.data <- data.frame(Yboot, X[,-1])
         
         out <- CSI(model = formula(boot.data), data = boot.data, ui = ui, 
-                   meq = meq, weights = "none", 
+                   meq = meq, mix.weights = "none", 
                    pvalue = FALSE, R = 0L, 
                    p.distr = p.distr, df = df, R2 = R2,
                    parallel = "no", ncpus = 1L, cl = NULL,
@@ -197,8 +197,8 @@ CSI <- function(model, data, ui = NULL, meq = 0, pvalue = TRUE,
         
         out 
       }
-    } else if (weights == "mvtnorm" | weights == "boot") {
-      if (weights == "boot") {
+    } else if (mix.weights == "mvtnorm" | mix.weights == "boot") {
+      if (mix.weights == "boot") {
         posPar <- matrix(as.numeric(NA), R, nrow(ui))
         
         fn <- function(b) { 
@@ -270,7 +270,7 @@ CSI <- function(model, data, ui = NULL, meq = 0, pvalue = TRUE,
         wt.bar <- sapply(0:nrow(ui), function(x) sum(posPar == x) / R)  
           names(wt.bar) <- 0:nrow(ui)
       }
-      else if (weights == "mvtnorm") {
+      else if (mix.weights == "mvtnorm") {
         cov <- vcov(fit.lm)
         # only inequality constraints 
         if (meq==0) {
@@ -356,7 +356,7 @@ CSI <- function(model, data, ui = NULL, meq = 0, pvalue = TRUE,
   }
   
   # when a bootstrapped p-value is computed and parallel processing is used.
-  if (weights == "none" & pvalue) {
+  if (mix.weights == "none" & pvalue) {
     RR <- sum(R)
     res <- if (ncpus > 1L && (have_mc || have_snow)) {
       if (have_mc) {
@@ -407,9 +407,9 @@ CSI <- function(model, data, ui = NULL, meq = 0, pvalue = TRUE,
   names(p.value) <- names(T.obs)
   
   out <- list(T.obs = T.obs, iact = iact, p.value = p.value, 
-              Rboot.tot = if (weights == "none") { Rboot.tot },
+              Rboot.tot = if (mix.weights == "none") { Rboot.tot },
               ui = ui, meq = meq,
-              wt.bar = if( weights != "none") { wt.bar },
+              wt.bar = if( mix.weights != "none") { wt.bar },
               R2 = if (R2) {Rsq},
               par.h0 = par.h0,
               par.h1 = par.h1,
