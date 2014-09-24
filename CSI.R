@@ -57,9 +57,10 @@ CSI <- function(model, data, ui = NULL, meq = 0, pvalue = TRUE,
   if (is.null(ui)) stop("no constraints matrix has been specified.")
   if (meq == nrow(ui)) stop("test not applicable with equality restrictions only.")
   
-  T.obs <- rep(as.numeric(NA), 4)
-  p.value <- rep(as.numeric(NA), 4)
+  T.obs <- vector("numeric", 4)
+  p.value <- vector("numeric", 4)
   Rboot.tot <- as.numeric(NA)
+  wt.bar <- vector("numeric", nrow(ui) + 1)
   
   # prepare for parallel processing
   if (missing(parallel)) parallel <- "no"
@@ -100,8 +101,7 @@ CSI <- function(model, data, ui = NULL, meq = 0, pvalue = TRUE,
   # fit models #
   # fit h0  
   # Overall test
-  ui.eq1 <- cbind(rep(0, (p - 1)), diag(rep(1, p - 1)))
-  ui.eq2 <- cbind(rep(0, (nrow(ui))), diag(rep(1, nrow(ui))))
+  ui.eq <- cbind(rep(0, (p-1)), diag(rep(1, p-1)))
 #  optim.h0 <- my.solve.QP(Dmat = XX, dvec = Xy, Amat = t(ui.eq), 
 #                          meq=nrow(ui.eq))
 #  optim.h0$solution[abs(optim.h0$solution) < sqrt(.Machine$double.eps)] <- 0L  
@@ -199,7 +199,7 @@ CSI <- function(model, data, ui = NULL, meq = 0, pvalue = TRUE,
       }
     } else if (weights == "mvtnorm" | weights == "boot") {
       if (weights == "boot") {
-        par.pos <- matrix(as.numeric(NA), R, nrow(ui.eq2))
+        posPar <- matrix(as.numeric(NA), R, nrow(ui))
         
         fn <- function(b) { 
           if (verbose) cat("R =", b, "\n")
@@ -219,17 +219,21 @@ CSI <- function(model, data, ui = NULL, meq = 0, pvalue = TRUE,
           else if (p.distr=="Chi")
             Yboot <- rchisq(n=n, df=df)
           
-          boot.data <- data.frame(Yboot, X[,-1])
+          X.boot <- mvtnorm:::rmvnorm(n, mean=rep(0,p), sigma=diag(p))
+          data.boot <- data.frame(Yboot, X.boot)
+          fit <- lm('Yboot ~ X', data.boot)
+          modelfit <- fit$model
+          Y <- model.response(modelfit)
+          X <- model.matrix(fit)[,,drop=FALSE]
           
-          out <- CSI(model = formula(boot.data), data = boot.data, ui = ui.eq1, 
-                     meq = meq, weights = "boot", 
-                     pvalue = FALSE, R = 0L, 
-                     p.distr = p.distr, df = df, R2 = R2,
-                     parallel = "no", ncpus = 1L, cl = NULL,
-                     seed = seed, verbose = verbose) 
+          XX <- crossprod(X) 
+          Xy <- t(X) %*% Y   
           
-          par <- out$par.h1
-          idx <- sapply(1:nrow(ui.eq2), function(x) which(ui.eq2[x,] == 1))
+          ui2 <- rbind(diag(ncol(ui))[1:nrow(ui),])
+          optim2 <- quadprog:::solve.QP(Dmat=XX, dvec=Xy, Amat=t(ui2), meq=0)
+          optim2$solution[abs(optim2$solution) < sqrt(.Machine$double.eps)] <- 0L  
+          par <- optim2$solution
+          idx <- sapply(1:nrow(ui), function(x) which(ui2[x,] == 1))
           out <- par[idx]
           
           out 
@@ -257,28 +261,30 @@ CSI <- function(model, data, ui = NULL, meq = 0, pvalue = TRUE,
         error.idx <- integer(0)
         for (b in seq_len(R)) {
           if (!is.null(res[[b]])) {
-            par.pos[b, 1:nrow(ui.eq2)] <- res[[b]]
+            posPar[b, 1:nrow(ui)] <- res[[b]]
           } else {
             error.idx <- c(error.idx, b)
           }
         }
-        sum_par_pos <- sapply(1:R, function(x) sum(par.pos[x,] > 0L))
-        wt.bar <- sapply(0:nrow(ui.eq2), function(x) sum(sum_par_pos == x) / R)  
+        posPar <- sapply(1:R, function(x) sum(posPar[x,] > 0L))
+        wt.bar <- sapply(0:nrow(ui), function(x) sum(posPar == x) / R)  
+          names(wt.bar) <- 0:nrow(ui)
       }
       else if (weights == "mvtnorm") {
         cov <- vcov(fit.lm)
         # only inequality constraints 
         if (meq==0) {
-          wt.bar <- ic.infer:::ic.weights(ui %*% cov %*% t(ui)) 
+          wt.bar <- ic.infer:::ic.weights(ui %*% cov %*% t(ui))
+          wt.bar <- rev(wt.bar)
         }
         # equality and inequality constraints
         else if (meq > 0) {
-          wt.bar <- ic.infer:::ic.weights(solve(solve(ui %*% cov %*% t(ui))[-(1:meq),-(1:meq)]))  
+          wt.bar <- ic.infer:::ic.weights(solve(solve(ui %*% cov %*% t(ui))[-(1:meq),-(1:meq)]))
+          wt.bar <- rev(wt.bar)
         }
       }
       
-      wt.bar2 = rev(wt.bar)
-      r = qr(ui.eq1)$rank
+      r = qr(ui.eq)$rank
       q = qr(ui)$rank - meq 
       # df1a=(((length(par.h1)-1) - nrow(ui)):((length(par.h1)-1) - meq))  
       i = 0:q
@@ -297,7 +303,7 @@ CSI <- function(model, data, ui = NULL, meq = 0, pvalue = TRUE,
         
         return(cdf)
       }
-      Ebar.pA <- 1 - pbar.A(x=T.obs[3], df1a=df1a, df2a=df2a, wt=wt.bar2)
+      Ebar.pA <- 1 - pbar.A(x=T.obs[3], df1a=df1a, df2a=df2a, wt=wt.bar)
       
       # hypothesis test Type B
       df1b <- meq:nrow(ui)
@@ -328,7 +334,7 @@ CSI <- function(model, data, ui = NULL, meq = 0, pvalue = TRUE,
         
         return(cdf)
       }
-      Fbar.pA <- 1 - pbar.A(x=T.obs[1], df1a=df1a, df2a=df.error, wt=wt.bar2)
+      Fbar.pA <- 1 - pbar.A(x=T.obs[1], df1a=df1a, df2a=df.error, wt=wt.bar)    #wt.bar2
       
       #Hypothesis test Type B
       df1b <- meq:nrow(ui)
@@ -403,6 +409,7 @@ CSI <- function(model, data, ui = NULL, meq = 0, pvalue = TRUE,
   out <- list(T.obs = T.obs, iact = iact, p.value = p.value, 
               Rboot.tot = if (weights == "none") { Rboot.tot },
               ui = ui, meq = meq,
+              wt.bar = if( weights != "none") { wt.bar },
               R2 = if (R2) {Rsq},
               par.h0 = par.h0,
               par.h1 = par.h1,
