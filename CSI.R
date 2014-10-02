@@ -34,7 +34,7 @@
 
 source('my.quadprog.R')
 
-CSI <- function(model, data, ui = NULL, meq = 0, pvalue = TRUE, 
+CSI <- function(model, data, ui = NULL, bvec = NULL, meq = 0, pvalue = TRUE, 
                 mix.weights = c("none", "boot", "mvtnorm"), R=99999, 
                 double.bootstrap = FALSE, double.bootstrap.R = 9999, 
                 p.distr = c("N", "T", "Chi"), df = 7, R2 = TRUE,
@@ -56,9 +56,13 @@ CSI <- function(model, data, ui = NULL, meq = 0, pvalue = TRUE,
   if (!is.data.frame(data)) stop("the data should be a dataframe.") 
   if (is.null(ui)) stop("no constraints matrix has been specified.")
   if (meq == nrow(ui)) stop("test not applicable with equality restrictions only.")
+  if (is.null(bvec)) 
+    bvec <- rep(0, nrow(ui))
+  if (!is.vector(bvec)) 
+    stop("bvec must be a vector.")
   
-  T.obs <- vector("numeric", 4)
-  p.value <- vector("numeric", 4)
+  T.obs <- vector("numeric", 2)
+  p.value <- vector("numeric", 2)
   Rboot.tot <- as.numeric(NA)
   wt.bar <- vector("numeric", nrow(ui) + 1)
   
@@ -77,65 +81,52 @@ CSI <- function(model, data, ui = NULL, meq = 0, pvalue = TRUE,
   }
   
   # fit model
-  fit.lm <- lm(as.formula(model), data)#, weights=weights)
+  fit.lm <- lm(as.formula(model), data, ...)
   mfit <- fit.lm$model
   Y <- model.response(mfit)
   X <- model.matrix(fit.lm)[,,drop=FALSE]
-  resid.lm <- fit.lm$residuals
-  #w.model <- fit.lm$weights
   n = length(Y) 
-  p = ncol(X)
+  b <- coef(fit.lm)
+  p <- length(b)
+  sm <- summary(fit.lm)
+  W <- sm$cov.unscaled
   
-  # weigths specified
-#  if (!is.null(w.model)) {
-#    W <- diag(w.model)
-#    XX <- t(X) %*% W %*% X
-#    Xy <- t(X) %*% W %*% Y
-#  }
-  # no weights specified
-#  else {
-    XX <- crossprod(X) 
-    Xy <- t(X) %*% Y   
-#  }
-  
-  # fit models #
-  # fit h0  
+### fit models ###
+
   # Overall test
   ui.eq <- cbind(rep(0, (p-1)), diag(rep(1, p-1)))
-#  optim.h0 <- my.solve.QP(Dmat = XX, dvec = Xy, Amat = t(ui.eq), 
-#                          meq=nrow(ui.eq))
-#  optim.h0$solution[abs(optim.h0$solution) < sqrt(.Machine$double.eps)] <- 0L  
-#  par.h0 <- optim.h0$solution
-#  RSS.h0 <- sum((Y - (X %*% par.h0))^2)        
-   RSS.h0 <- sum((Y - mean(predict(fit.lm)))^2)
-   par.h0 <- rep(mean(predict(fit.lm)), p)
+  out.h0 <- my.solve.QP(Dmat = solve(W), dvec = solve(W, b), Amat = t(ui.eq), 
+                     bvec = rep(0, nrow(ui.eq)), meq = nrow(ui.eq))
+  par.h0 <- out.h0$solution
+  par.h0[abs(par.h0) < sqrt(.Machine$double.eps)] <- 0L  
+  RSS.h0 <- sum((Y - mean(predict(fit.lm)))^2)
+  par2.h0 <- rep(mean(predict(fit.lm)), p)
   
   # full model RSS (possibly constrained) 
-  optim.h1 <- my.solve.QP(Dmat=XX, dvec=Xy, Amat=t(ui), meq=meq)
-  optim.h1$solution[abs(optim.h1$solution) < sqrt(.Machine$double.eps)] <- 0L  
-  par.h1 <- optim.h1$solution
+  out.ic <- my.solve.QP(Dmat = solve(W), dvec = solve(W, b), Amat = t(ui), 
+                     bvec = bvec, meq = meq)
+  
+  out.ic$solution[abs(out.ic$solution) < sqrt(.Machine$double.eps)] <- 0L  
+  par.h1 <- out.ic$solution
     RSS.h1 <- sum((Y - (X%*%par.h1))^2)
   
   # number of active order constraints
-  iact <- optim.h1$iact 
+  iact <- out.ic$iact 
   
   # completely unconstrained RSS (not always the same...)
-  par.h2 <- optim.h1$unconstrained.solution
+  par.h2 <- out.ic$unconstrained.solution
     RSS.h2 <- sum(resid(fit.lm)^2)
   
   s2 <- summary(fit.lm)$sigma^2
   df.error <- as.numeric(summary(fit.lm)$fstatistic[3])
   
   # compute the F-bar test-statistic
-  T.obs[1] <- (RSS.h0 - RSS.h1) / s2
-  T.obs[2] <- (RSS.h1 - RSS.h2) / s2
-  #T.obs[1] <- t(par.h1 - par.h0) %*% solve(vcov(fit.lm), par.h1 - par.h0)
-  #T.obs[2] <- t(par.h2 - par.h1) %*% solve(vcov(fit.lm), par.h2 - par.h1)
-    
-  # compute the E-square-bar test-statistic. 
-  T.obs[3] <- (RSS.h0 - RSS.h1) / RSS.h0
-  T.obs[4] <- (RSS.h1 - RSS.h2) / RSS.h1
+#  T.obs[1] <- (RSS.h0 - RSS.h1) / s2
+#  T.obs[2] <- (RSS.h1 - RSS.h2) / s2
   
+  T.obs[1] <- t(par.h1 - par.h0) %*% solve(vcov(fit.lm), par.h1 - par.h0)
+  T.obs[2] <- t(par.h2 - par.h1) %*% solve(vcov(fit.lm), par.h2 - par.h1)
+    
   # fix negative and very small values to zero? 
   ind.zero <- which(T.obs < 1e-14) 
   T.obs <- replace(T.obs, ind.zero, 0)  
@@ -162,7 +153,7 @@ CSI <- function(model, data, ui = NULL, meq = 0, pvalue = TRUE,
   if (pvalue) {
     # bootstrapped p value
     if (mix.weights == "none") {    
-      T.boot <- matrix(as.numeric(NA), R, 4)
+      T.boot <- matrix(as.numeric(NA), R, 2)
       
       fn <- function(b) { 
         if (verbose) cat("R =", b)
@@ -185,7 +176,7 @@ CSI <- function(model, data, ui = NULL, meq = 0, pvalue = TRUE,
         boot.data <- data.frame(Yboot, X[,-1])
         
         out <- CSI(model = formula(boot.data), data = boot.data, ui = ui, 
-                   meq = meq, mix.weights = "none", 
+                   bvec = bvec, meq = meq, mix.weights = "none", 
                    pvalue = FALSE, R = 0L, 
                    p.distr = p.distr, df = df, R2 = R2,
                    parallel = "no", ncpus = 1L, cl = NULL,
@@ -208,7 +199,7 @@ CSI <- function(model, data, ui = NULL, meq = 0, pvalue = TRUE,
             runif (1)              
           RNGstate <- .Random.seed
           
-          # bootstrapped p-value based on normal-, T-, or Chi-square distribution
+          # bootstrapped weights based on normal-, T-, or Chi-square distribution
           # Additional distributions can be added if needed.
           # The null-distribution does not depend on mu and sigma. So any value
           # can be used as long as the same values are used over all bootstrap runs.
@@ -219,21 +210,23 @@ CSI <- function(model, data, ui = NULL, meq = 0, pvalue = TRUE,
           else if (p.distr=="Chi")
             Yboot <- rchisq(n=n, df=df)
           
-          X.boot <- mvtnorm:::rmvnorm(n, mean=rep(0,p), sigma=diag(p))
-          data.boot <- data.frame(Yboot, X.boot)
-          fit <- lm('Yboot ~ X', data.boot)
-          modelfit <- fit$model
-          Y <- model.response(modelfit)
-          X <- model.matrix(fit)[,,drop=FALSE]
+          if (attr(fit.lm$terms, "intercept")) {
+            data.boot <- data.frame(Yboot, X[,-1])  
+          } else {
+            data.boot <- data.frame(Yboot, X)  
+          }
           
-          XX <- crossprod(X) 
-          Xy <- t(X) %*% Y   
-          
-          ui2 <- rbind(diag(ncol(ui))[1:nrow(ui),])
-          optim2 <- quadprog:::solve.QP(Dmat=XX, dvec=Xy, Amat=t(ui2), meq=0)
-          optim2$solution[abs(optim2$solution) < sqrt(.Machine$double.eps)] <- 0L  
-          par <- optim2$solution
-          idx <- sapply(1:nrow(ui), function(x) which(ui2[x,] == 1))
+          fit <- lm('Yboot ~ .', data.boot)
+          b <- coef(fit)
+          sm <- summary(fit)
+          W <- sm$cov.unscaled
+          uiw <- rbind(diag(ncol(ui))[1:nrow(ui),])
+                    
+          out.ic <- my.solve.QP(Dmat = solve(W), dvec = solve(W, b), 
+                                Amat = t(uiw), meq = 0L)
+          out.ic$solution[abs(out.ic$solution) < sqrt(.Machine$double.eps)] <- 0L  
+          par <- out.ic$solution
+          idx <- sapply(1:nrow(ui), function(x) which(uiw[x,] == 1))
           out <- par[idx]
           
           out 
@@ -267,7 +260,7 @@ CSI <- function(model, data, ui = NULL, meq = 0, pvalue = TRUE,
           }
         }
         posPar <- sapply(1:R, function(x) sum(posPar[x,] > 0L))
-        wt.bar <- sapply(0:nrow(ui), function(x) sum(posPar == x) / R)  
+        wt.bar <- sapply(0:nrow(ui), function(x) sum(posPar == x) / R)
           names(wt.bar) <- 0:nrow(ui)
       }
       else if (mix.weights == "mvtnorm") {
@@ -286,45 +279,17 @@ CSI <- function(model, data, ui = NULL, meq = 0, pvalue = TRUE,
       
       r = qr(ui.eq)$rank
       q = qr(ui)$rank - meq 
-      # df1a=(((length(par.h1)-1) - nrow(ui)):((length(par.h1)-1) - meq))  
       i = 0:q
       df1a = r-q+i
       df2a = n-p+q-i
-      
-      # these are adjusted functions of the pbetabar() function from the 
-      # ic.infer package.
-      pbar.A <- function(x, df1a, df2a, wt) {
-        if (x <= 0) { 
-          return(0)
-        }
-        zed <- df1a == 0
-        cdf <- ifelse(any(zed), wt[zed], 0)
-        cdf <- cdf + sum(pbeta(x, df1a[!zed]/2, df2a[!zed]/2)*wt[!zed]) 
-        
-        return(cdf)
-      }
-      Ebar.pA <- 1 - pbar.A(x=T.obs[3], df1a=df1a, df2a=df2a, wt=wt.bar)
-      
-      # hypothesis test Type B
       df1b <- meq:nrow(ui)
       df2b <- df.error
       
-      pbar.B <- function(x, df1b, df2b, wt) {
-        if (x <= 0) {
-          return(0)
-        }
-        zed <- df1b == 0
-        cdf <- ifelse(any(zed), wt[zed], 0)
-        cdf <- cdf + sum(pbeta(x, df1b[!zed]/2, df2b/2)*wt[!zed])
-        
-        return(cdf)
-      }
-      Ebar.pB <- 1 - pbar.B(x=T.obs[4], df1b=df1b, df2b=df2b, wt=wt.bar)
+      ## these are adjusted functions of the pbetabar() function from the ##
+      ## ic.infer package ##
       
-      p.value[3:4] <- c(Ebar.pA, Ebar.pB)
-      
-      ####################
-      pbar.A <- function(x, df1a, df2a, wt) {
+      #Hypothesis test Type A
+      pbarA <- function(x, df1a, df2a, wt) {
         if (x <= 0) { 
           return(0)
         }
@@ -334,12 +299,10 @@ CSI <- function(model, data, ui = NULL, meq = 0, pvalue = TRUE,
         
         return(cdf)
       }
-      Fbar.pA <- 1 - pbar.A(x=T.obs[1], df1a=df1a, df2a=df.error, wt=wt.bar)    #wt.bar2
+      Fbar.pA <- 1 - pbarA(x=T.obs[1], df1a=df1a, df2a=df.error, wt=wt.bar)    
       
       #Hypothesis test Type B
-      df1b <- meq:nrow(ui)
-      
-      pbar.B <- function(x, df1b, df2b, wt) {
+      pbarB <- function(x, df1b, df2b, wt) {
         if (x <= 0) {
           return(0)
         }
@@ -349,7 +312,7 @@ CSI <- function(model, data, ui = NULL, meq = 0, pvalue = TRUE,
         
         return(cdf)
       }
-      Fbar.pB <- 1 - pbar.B(x=T.obs[2], df1b=df1b, df2b=df.error, wt=wt.bar)
+      Fbar.pB <- 1 - pbarB(x=T.obs[2], df1b=df1b, df2b=df.error, wt=wt.bar)
       
       p.value[1:2] <- c(Fbar.pA, Fbar.pB)
     }      
@@ -379,7 +342,7 @@ CSI <- function(model, data, ui = NULL, meq = 0, pvalue = TRUE,
     error.idx <- integer(0)
     for (b in seq_len(RR)) {
       if (!is.null(res[[b]])) {
-        T.boot[b, 1:4] <- res[[b]]
+        T.boot[b, 1:2] <- res[[b]]
       } else {
         error.idx <- c(error.idx, b)
       }
@@ -399,21 +362,17 @@ CSI <- function(model, data, ui = NULL, meq = 0, pvalue = TRUE,
       #compue bootstrap p-value
       p.value[1]  <- sum(T.boot[,1] > T.obs[1]) / Rboot.tot
       p.value[2]  <- sum(T.boot[,2] > T.obs[2]) / Rboot.tot
-      p.value[3]  <- sum(T.boot[,3] > T.obs[3]) / Rboot.tot
-      p.value[4]  <- sum(T.boot[,4] > T.obs[4]) / Rboot.tot
   }
-  
-  names(T.obs) <- c("Fbar.A","Fbar.B","E^2-bar.A","E^2-bar.B")
-  names(p.value) <- names(T.obs)
+    names(p.value) <- names(T.obs) <- c("Fbar.A","Fbar.B")
   
   out <- list(T.obs = T.obs, iact = iact, p.value = p.value, 
               Rboot.tot = if (mix.weights == "none") { Rboot.tot },
               ui = ui, meq = meq,
               wt.bar = if( mix.weights != "none") { wt.bar },
               R2 = if (R2) {Rsq},
-              par.h0 = par.h0,
+              par.h0 = par2.h0,
               par.h1 = par.h1,
-              par.h2 = optim.h1$unconstrained.solution)
+              par.h2 = par.h2)
   
   class(out) <- "CSI"
   
