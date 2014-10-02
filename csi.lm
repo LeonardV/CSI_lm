@@ -375,7 +375,7 @@ csi.lm <- function(model, data, ui = NULL, bvec = NULL, meq = 0, pvalue = TRUE,
               par.h1 = par.h1,
               par.h2 = par.h2)
   
-  class(out) <- "CSI"
+  class(out) <- "csi.lm"
   
   return(out)
   
