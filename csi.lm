@@ -14,6 +14,7 @@
 # data                : Data frame containing the observed variables used in the model.
 # ui                  : Matrix (or vector in case of one single restriction only) defining the left-hand side of the restriction, ui%*%beta >= ci, where beta is the parameter vector.
 # meq                 : Integer number (default 0) giving the number of rows of ui that are used for equality restrictions instead of inequality restrictions.
+# bvec                : Vector holding the values of c (defaults to zero).
 # pvalue              : If TRUE (default), a p-value is computed
 # mix.weights         : The procedure of compuinge the p-value. If "none" (first approach), the p-value is computed directly without first calculating the mixing weights. 
 #                       If "boot" (second approach) the weights are computed based on a simulation procedure. 
@@ -33,12 +34,12 @@
 
 source('my.quadprog.R')
 
-csi.lm <- function(model, data, ui = NULL, bvec = NULL, meq = 0, pvalue = TRUE, 
-                   mix.weights = c("none", "boot", "mvtnorm"), R=99999, 
-                   double.bootstrap = FALSE, double.bootstrap.R = 9999, 
-                   p.distr = c("N", "T", "Chi"), df = 7, R2 = TRUE,
-                   parallel = c("no", "multicore", "snow"), ncpus = 1L, cl = NULL,                 
-                   seed = NULL, verbose = FALSE, ...) {
+CSI <- function(model, data, ui = NULL, bvec = NULL, meq = 0, pvalue = TRUE, 
+                mix.weights = c("none", "boot", "mvtnorm"), R=99999, 
+                double.bootstrap = FALSE, double.bootstrap.R = 9999, 
+                p.distr = c("N", "T", "Chi"), df = 7, R2 = TRUE,
+                parallel = c("no", "multicore", "snow"), ncpus = 1L, cl = NULL,                 
+                seed = NULL, verbose = FALSE, ...) {
   
   # checks
   if (qr(ui)$rank < nrow(ui)) {
@@ -375,7 +376,7 @@ csi.lm <- function(model, data, ui = NULL, bvec = NULL, meq = 0, pvalue = TRUE,
               par.h1 = par.h1,
               par.h2 = par.h2)
   
-  class(out) <- "csi.lm"
+  class(out) <- "CSI"
   
   return(out)
   
