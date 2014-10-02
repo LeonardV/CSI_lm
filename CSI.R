@@ -6,7 +6,6 @@
 # add confidence interval constrained estimates
 # add residual bootstrap
 # compute bootstrapped std. errors
-# add mix.weights p < 4
 
 ##############################
 ## explaining the arguments ##
@@ -45,14 +44,17 @@ CSI <- function(model, data, ui = NULL, bvec = NULL, meq = 0, pvalue = TRUE,
   if (qr(ui)$rank < nrow(ui)) {
     stop("Matrix ui must have full row-rank.")
   }  
+  
   parallel <- tolower(parallel)
+  p.distr <- tolower(p.distr)
+  mix.weights <- tolower(mix.weights)
   stopifnot(parallel %in% c("no", "multicore", "snow"),
-            p.distr %in% c("N", "T", "Chi"),
+            p.distr %in% c("n", "t", "chi"),
             mix.weights %in% c("none", "boot", "mvtnorm"))          
   
-  if (missing(p.distr)) { p.distr <- "N" }
+  if (missing(p.distr)) { p.distr <- "n" }
   if (missing(mix.weights)) { mix.weights <- "boot" }
-  
+  if (missing(parallel)) parallel <- "no"  
   if (!is.data.frame(data)) stop("the data should be a dataframe.") 
   if (is.null(ui)) stop("no constraints matrix has been specified.")
   if (meq == nrow(ui)) stop("test not applicable with equality restrictions only.")
@@ -67,8 +69,6 @@ CSI <- function(model, data, ui = NULL, bvec = NULL, meq = 0, pvalue = TRUE,
   wt.bar <- vector("numeric", nrow(ui) + 1)
   
   # prepare for parallel processing
-  if (missing(parallel)) parallel <- "no"
-  
   parallel <- match.arg(parallel)
   have_mc <- have_snow <- FALSE
   if (parallel != "no" && ncpus > 1L) {
@@ -91,8 +91,7 @@ CSI <- function(model, data, ui = NULL, bvec = NULL, meq = 0, pvalue = TRUE,
   sm <- summary(fit.lm)
   W <- sm$cov.unscaled
   
-### fit models ###
-
+  ### fit models ###
   # Overall test
   ui.eq <- cbind(rep(0, (p-1)), diag(rep(1, p-1)))
   out.h0 <- my.solve.QP(Dmat = solve(W), dvec = solve(W, b), Amat = t(ui.eq), 
@@ -105,7 +104,6 @@ CSI <- function(model, data, ui = NULL, bvec = NULL, meq = 0, pvalue = TRUE,
   # full model RSS (possibly constrained) 
   out.ic <- my.solve.QP(Dmat = solve(W), dvec = solve(W, b), Amat = t(ui), 
                      bvec = bvec, meq = meq)
-  
   out.ic$solution[abs(out.ic$solution) < sqrt(.Machine$double.eps)] <- 0L  
   par.h1 <- out.ic$solution
     RSS.h1 <- sum((Y - (X%*%par.h1))^2)
@@ -166,11 +164,11 @@ CSI <- function(model, data, ui = NULL, bvec = NULL, meq = 0, pvalue = TRUE,
         # Additional distributions can be added if needed.
         # The null-distribution does not depend on mu and sigma. So any value
         # can be used as long as the same values are used over all bootstrap runs.
-        if (p.distr=="N")
-          Yboot <- rnorm(n=n, 0, 1) 
-        else if (p.distr=="T")
-          Yboot <- rt(n=n, df=df)
-        else if (p.distr=="Chi")
+        if (p.distr == "n")
+          Yboot <- rnorm(n, 0, 1) 
+        else if (p.distr == "t")
+          Yboot <- rt(n, df = df)
+        else if (p.distr == "chi")
           Yboot <- rchisq(n=n, df=df)
         
         boot.data <- data.frame(Yboot, X[,-1])
@@ -203,12 +201,15 @@ CSI <- function(model, data, ui = NULL, bvec = NULL, meq = 0, pvalue = TRUE,
           # Additional distributions can be added if needed.
           # The null-distribution does not depend on mu and sigma. So any value
           # can be used as long as the same values are used over all bootstrap runs.
-          if (p.distr=="N")
-            Yboot <- rnorm(n=n, 0, 1) 
-          else if (p.distr=="T")
-            Yboot <- rt(n=n, df=df)
-          else if (p.distr=="Chi")
-            Yboot <- rchisq(n=n, df=df)
+          if (p.distr=="n") {
+            Yboot <- rnorm(n, 0, 1) 
+          } 
+          else if (p.distr == "t") {
+            Yboot <- rt(n, df = df)
+          } 
+          else if (p.distr == "chi") {
+            Yboot <- rchisq(n, df = df)
+          }
           
           if (attr(fit.lm$terms, "intercept")) {
             data.boot <- data.frame(Yboot, X[,-1])  
