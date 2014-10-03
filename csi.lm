@@ -85,7 +85,7 @@ csi.lm <- function(model, data, ui = NULL, bvec = NULL, meq = 0, pvalue = TRUE,
   }
   
   # fit model
-  fit.lm <- lm(as.formula(model), data)#, ...)
+  fit.lm <- lm(as.formula(model), data, ...)
   # model
   mfit <- fit.lm$model
   # response variable
@@ -219,14 +219,17 @@ csi.lm <- function(model, data, ui = NULL, bvec = NULL, meq = 0, pvalue = TRUE,
           } else if (p.distr == "chi") {
             Yboot <- rchisq(n, df = df)
           }
-          
-          if (attr(fit.lm$terms, "intercept")) {
-            data.boot <- data.frame(Yboot, X[,-1])  
-          } else {
-            data.boot <- data.frame(Yboot, X)  
+          idx <- row.names(mfit)
+          model.rhs <- formula(model)
+          model.rhs[[2]] <- NULL
+          X <- model.matrix(model.rhs)[,,drop=FALSE][idx,]
+          if (!attr(fit.lm$terms, "intercept")) {
+            X[,1] <- 1L 
           }
-          
-          fit <- lm('Yboot ~ .', data.boot)
+          data <- data.frame(Yboot, X[,-1])
+          fit.lm <- lm('Yboot ~ .', data)
+          mfit <- fit.lm$model
+          Y <- model.response(mfit)
           
           #weigths specified
           if(!is.null(w)) {
@@ -239,7 +242,6 @@ csi.lm <- function(model, data, ui = NULL, bvec = NULL, meq = 0, pvalue = TRUE,
             Xy <- t(X) %*% Y   
           }
           uiw <- rbind(diag(ncol(ui))[1:nrow(ui),])
-          
           out.ic <- my.solve.QP(Dmat = XX, dvec = Xy, Amat = t(uiw), meq = 0L)
           out.ic$solution[abs(out.ic$solution) < sqrt(.Machine$double.eps)] <- 0L  
           par <- out.ic$solution
@@ -266,7 +268,7 @@ csi.lm <- function(model, data, ui = NULL, bvec = NULL, meq = 0, pvalue = TRUE,
             else parallel::parLapply(cl, seq_len(RR), fn)
           }
         } 
-        else res<-lapply(seq_len(RR), fn)
+        else lapply(seq_len(RR), fn)
         
         error.idx <- integer(0)
         for (b in seq_len(R)) {
@@ -382,7 +384,7 @@ csi.lm <- function(model, data, ui = NULL, bvec = NULL, meq = 0, pvalue = TRUE,
   out <- list(T.obs = T.obs, iact = iact, p.value = p.value, 
               Rboot.tot = if (mix.weights == "none") { Rboot.tot },
               ui = ui, meq = meq,
-              wt.bar = if( mix.weights != "none") { wt.bar },
+              wt.bar = wt.bar,
               R2 = if (R2) {Rsq},
               par.h0 = par.h0,
               par.h1 = par.h1,
