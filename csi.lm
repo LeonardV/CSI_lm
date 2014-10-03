@@ -85,8 +85,7 @@ csi.lm <- function(model, data, ui = NULL, bvec = NULL, meq = 0, pvalue = TRUE,
   }
   
   # fit model
-  model <- 'depression ~ factor(group)'
-  fit.lm <- lm(as.formula(model), data)#, ...)
+  fit.lm <- lm(as.formula(model), data, ...)
   mfit <- fit.lm$model
   Y <- model.response(mfit)
   X <- model.matrix(fit.lm)[,,drop=FALSE]
