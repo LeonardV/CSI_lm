@@ -34,13 +34,13 @@
 
 source('my.quadprog.R')
 
-CSI <- function(model, data, ui = NULL, bvec = NULL, meq = 0, pvalue = TRUE, 
-                mix.weights = c("none", "boot", "mvtnorm"), R=99999, 
-                double.bootstrap = FALSE, double.bootstrap.R = 9999, 
-                p.distr = c("N", "T", "Chi"), df = 7, R2 = TRUE,
-                parallel = c("no", "multicore", "snow"), ncpus = 1L, cl = NULL,                 
-                seed = NULL, verbose = FALSE, ...) {
-  
+csi.lm <- function(model, data, ui = NULL, bvec = NULL, meq = 0, pvalue = TRUE, 
+                   mix.weights = c("none", "boot", "mvtnorm"), R=99999, 
+                   double.bootstrap = FALSE, double.bootstrap.R = 9999, 
+                   p.distr = c("N", "T", "Chi"), df = 7, R2 = TRUE,
+                   parallel = c("no", "multicore", "snow"), ncpus = 1L, cl = NULL,                 
+                   seed = NULL, verbose = FALSE, ...) {
+    
   # checks
   if (qr(ui)$rank < nrow(ui)) {
     stop("Matrix ui must have full row-rank.")
@@ -96,7 +96,7 @@ CSI <- function(model, data, ui = NULL, bvec = NULL, meq = 0, pvalue = TRUE,
   # Overall test
   ui.eq <- cbind(rep(0, (p-1)), diag(rep(1, p-1)))
   out.h0 <- my.solve.QP(Dmat = solve(W), dvec = solve(W, b), Amat = t(ui.eq), 
-                     bvec = rep(0, nrow(ui.eq)), meq = nrow(ui.eq))
+                        bvec = rep(0, nrow(ui.eq)), meq = nrow(ui.eq))
   par.h0 <- out.h0$solution
   par.h0[abs(par.h0) < sqrt(.Machine$double.eps)] <- 0L  
   RSS.h0 <- sum((Y - mean(predict(fit.lm)))^2)
@@ -104,28 +104,28 @@ CSI <- function(model, data, ui = NULL, bvec = NULL, meq = 0, pvalue = TRUE,
   
   # full model RSS (possibly constrained) 
   out.ic <- my.solve.QP(Dmat = solve(W), dvec = solve(W, b), Amat = t(ui), 
-                     bvec = bvec, meq = meq)
+                        bvec = bvec, meq = meq)
   out.ic$solution[abs(out.ic$solution) < sqrt(.Machine$double.eps)] <- 0L  
   par.h1 <- out.ic$solution
-    RSS.h1 <- sum((Y - (X%*%par.h1))^2)
+  RSS.h1 <- sum((Y - (X%*%par.h1))^2)
   
   # number of active order constraints
   iact <- out.ic$iact 
   
   # completely unconstrained RSS (not always the same...)
   par.h2 <- out.ic$unconstrained.solution
-    RSS.h2 <- sum(resid(fit.lm)^2)
+  RSS.h2 <- sum(resid(fit.lm)^2)
   
   s2 <- summary(fit.lm)$sigma^2
   df.error <- as.numeric(summary(fit.lm)$fstatistic[3])
   
   # compute the F-bar test-statistic
-#  T.obs[1] <- (RSS.h0 - RSS.h1) / s2
-#  T.obs[2] <- (RSS.h1 - RSS.h2) / s2
+  #  T.obs[1] <- (RSS.h0 - RSS.h1) / s2
+  #  T.obs[2] <- (RSS.h1 - RSS.h2) / s2
   
   T.obs[1] <- t(par.h1 - par.h0) %*% solve(vcov(fit.lm), par.h1 - par.h0)
   T.obs[2] <- t(par.h2 - par.h1) %*% solve(vcov(fit.lm), par.h2 - par.h1)
-    
+  
   # fix negative and very small values to zero? 
   ind.zero <- which(T.obs < 1e-14) 
   T.obs <- replace(T.obs, ind.zero, 0)  
@@ -141,11 +141,11 @@ CSI <- function(model, data, ui = NULL, bvec = NULL, meq = 0, pvalue = TRUE,
     Rsq <- 1 - sum(residuals^2) / sum((Y - mean(Y))^2)
     if (is.null(weights(fit.lm)) && !attr(fit.lm$terms, "intercept")) 
       Rsq <- 1 - sum(residuals^2) / sum(Y^2)
-#    else if (attr(fit.lm$terms, "intercept") && !is.null(weights(fit.lm))) 
-#      Rsq <- 1 - sum(weights(fit.lm) * residuals^2) / 
-#      sum(weights(fit.lm) * (Y - weighted.mean(Y, w = w.model))^2)
-#    else if (!(attr(fit.lm$terms, "intercept") || is.null(weights(fit.lm)))) 
-#      Rsq <- 1 - sum(weights(fit.lm) * residuals^2) / sum(weights(fit.lm) * Y^2)
+    #    else if (attr(fit.lm$terms, "intercept") && !is.null(weights(fit.lm))) 
+    #      Rsq <- 1 - sum(weights(fit.lm) * residuals^2) / 
+    #      sum(weights(fit.lm) * (Y - weighted.mean(Y, w = w.model))^2)
+    #    else if (!(attr(fit.lm$terms, "intercept") || is.null(weights(fit.lm)))) 
+    #      Rsq <- 1 - sum(weights(fit.lm) * residuals^2) / sum(weights(fit.lm) * Y^2)
   }
   
   # compute p-value based on bootstrapping or mixing weights  
@@ -223,7 +223,7 @@ CSI <- function(model, data, ui = NULL, bvec = NULL, meq = 0, pvalue = TRUE,
           sm <- summary(fit)
           W <- sm$cov.unscaled
           uiw <- rbind(diag(ncol(ui))[1:nrow(ui),])
-                    
+          
           out.ic <- my.solve.QP(Dmat = solve(W), dvec = solve(W, b), 
                                 Amat = t(uiw), meq = 0L)
           out.ic$solution[abs(out.ic$solution) < sqrt(.Machine$double.eps)] <- 0L  
@@ -263,7 +263,7 @@ CSI <- function(model, data, ui = NULL, bvec = NULL, meq = 0, pvalue = TRUE,
         }
         posPar <- sapply(1:R, function(x) sum(posPar[x,] > 0L))
         wt.bar <- sapply(0:nrow(ui), function(x) sum(posPar == x) / R)
-          names(wt.bar) <- 0:nrow(ui)
+        names(wt.bar) <- 0:nrow(ui)
       }
       else if (mix.weights == "mvtnorm") {
         cov <- vcov(fit.lm)
@@ -349,23 +349,23 @@ CSI <- function(model, data, ui = NULL, bvec = NULL, meq = 0, pvalue = TRUE,
         error.idx <- c(error.idx, b)
       }
     }
-      # remove NA values / Inf values
-      na.boot.ind   <- which(is.na(T.boot), arr.ind = TRUE)
-      inf.boot.ind  <- which(T.boot == Inf, arr.ind = TRUE)
-      ind <- c(na.boot.ind[,1], inf.boot.ind[,1])
-      
-      ind.unique <- unique(ind)
-      Rboot.tot <- (R - length(ind.unique))
-      
-      if (length(ind.unique) > 0) { 
-        T.boot <- T.boot[-ind.unique,]
-      }
-      
-      #compue bootstrap p-value
-      p.value[1]  <- sum(T.boot[,1] > T.obs[1]) / Rboot.tot
-      p.value[2]  <- sum(T.boot[,2] > T.obs[2]) / Rboot.tot
+    # remove NA values / Inf values
+    na.boot.ind   <- which(is.na(T.boot), arr.ind = TRUE)
+    inf.boot.ind  <- which(T.boot == Inf, arr.ind = TRUE)
+    ind <- c(na.boot.ind[,1], inf.boot.ind[,1])
+    
+    ind.unique <- unique(ind)
+    Rboot.tot <- (R - length(ind.unique))
+    
+    if (length(ind.unique) > 0) { 
+      T.boot <- T.boot[-ind.unique,]
+    }
+    
+    #compue bootstrap p-value
+    p.value[1]  <- sum(T.boot[,1] > T.obs[1]) / Rboot.tot
+    p.value[2]  <- sum(T.boot[,2] > T.obs[2]) / Rboot.tot
   }
-    names(p.value) <- names(T.obs) <- c("Fbar.A","Fbar.B")
+  names(p.value) <- names(T.obs) <- c("Fbar.A","Fbar.B")
   
   out <- list(T.obs = T.obs, iact = iact, p.value = p.value, 
               Rboot.tot = if (mix.weights == "none") { Rboot.tot },
