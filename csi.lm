@@ -35,9 +35,9 @@
 source('my.quadprog.R')
 
 csi.lm <- function(model, data, ui = NULL, bvec = NULL, meq = 0, pvalue = TRUE, 
-                   mix.weights = c("none", "boot", "mvtnorm"), R=99999, 
+                   mix.weights = c("boot", "none", "mvtnorm"), R=9999, 
                    double.bootstrap = FALSE, double.bootstrap.R = 9999, 
-                   p.distr = c("N", "T", "Chi"), df = 7, R2 = TRUE,
+                   p.distr = c("n", "t", "chi"), df = 7, R2 = TRUE,
                    parallel = c("no", "multicore", "snow"), ncpus = 1L, cl = NULL,                 
                    seed = NULL, verbose = FALSE, ...) {
     
@@ -49,21 +49,23 @@ csi.lm <- function(model, data, ui = NULL, bvec = NULL, meq = 0, pvalue = TRUE,
   parallel <- tolower(parallel)
   p.distr <- tolower(p.distr)
   mix.weights <- tolower(mix.weights)
+  
   stopifnot(parallel %in% c("no", "multicore", "snow"),
             p.distr %in% c("n", "t", "chi"),
             mix.weights %in% c("none", "boot", "mvtnorm"))          
+    
+  #if (missing(p.distr)) { p.distr <- "n" }
+  #if (missing(mix.weights)) { mix.weights <- "boot" }
+  #if (missing(parallel)) { parallel <- "no" }
+  if (!is.data.frame(data)) { stop("the data should be a dataframe.") }
+  if (is.null(ui)) { stop("no constraints matrix has been specified.") }
+  if (meq == nrow(ui)) { stop("test not applicable with equality restrictions only.") }
+  if (is.null(bvec)) { bvec <- rep(0, nrow(ui)) }
+  if (!is.vector(bvec)) { stop("bvec must be a vector.") }
   
-  if (missing(p.distr)) { p.distr <- "n" }
-  if (missing(mix.weights)) { mix.weights <- "boot" }
-  if (missing(parallel)) parallel <- "no"  
-  if (!is.data.frame(data)) stop("the data should be a dataframe.") 
-  if (is.null(ui)) stop("no constraints matrix has been specified.")
-  if (meq == nrow(ui)) stop("test not applicable with equality restrictions only.")
-  if (is.null(bvec)) 
-    bvec <- rep(0, nrow(ui))
-  if (!is.vector(bvec)) 
-    stop("bvec must be a vector.")
-  
+  p.distr <- match.arg(p.distr)
+  mix.weights <- match.arg(mix.weights)
+    
   T.obs <- vector("numeric", 2)
   p.value <- vector("numeric", 2)
   Rboot.tot <- as.numeric(NA)
@@ -165,13 +167,15 @@ csi.lm <- function(model, data, ui = NULL, bvec = NULL, meq = 0, pvalue = TRUE,
         # Additional distributions can be added if needed.
         # The null-distribution does not depend on mu and sigma. So any value
         # can be used as long as the same values are used over all bootstrap runs.
-        if (p.distr == "n")
+        if (p.distr == "n") {
           Yboot <- rnorm(n, 0, 1) 
-        else if (p.distr == "t")
+        } 
+        else if (p.distr == "t") {
           Yboot <- rt(n, df = df)
-        else if (p.distr == "chi")
+        }
+        else if (p.distr == "chi") {
           Yboot <- rchisq(n=n, df=df)
-        
+        }
         boot.data <- data.frame(Yboot, X[,-1])
         
         out <- CSI(model = formula(boot.data), data = boot.data, ui = ui, 
@@ -251,7 +255,7 @@ csi.lm <- function(model, data, ui = NULL, bvec = NULL, meq = 0, pvalue = TRUE,
             else parallel::parLapply(cl, seq_len(RR), fn)
           }
         } 
-        else lapply(seq_len(RR), fn)
+        else res<-lapply(seq_len(RR), fn)
         
         error.idx <- integer(0)
         for (b in seq_len(R)) {
@@ -263,7 +267,7 @@ csi.lm <- function(model, data, ui = NULL, bvec = NULL, meq = 0, pvalue = TRUE,
         }
         posPar <- sapply(1:R, function(x) sum(posPar[x,] > 0L))
         wt.bar <- sapply(0:nrow(ui), function(x) sum(posPar == x) / R)
-        names(wt.bar) <- 0:nrow(ui)
+          names(wt.bar) <- 0:nrow(ui)
       }
       else if (mix.weights == "mvtnorm") {
         cov <- vcov(fit.lm)
