@@ -1,8 +1,9 @@
 # Code adjusted 09-19-2014 by L.Vanbrabant
 # Parts of the code are taken from the R package ic.infer (Grömping, 2010)
-# 
+
 
 ## to do ##
+# no intercept model
 # add confidence interval constrained estimates
 # add residual bootstrap
 # compute bootstrapped std. errors
@@ -84,7 +85,8 @@ csi.lm <- function(model, data, ui = NULL, bvec = NULL, meq = 0, pvalue = TRUE,
   }
   
   # fit model
-  fit.lm <- lm(as.formula(model), data, ...)
+  model <- 'depression ~ factor(group)'
+  fit.lm <- lm(as.formula(model), data)#, ...)
   mfit <- fit.lm$model
   Y <- model.response(mfit)
   X <- model.matrix(fit.lm)[,,drop=FALSE]
