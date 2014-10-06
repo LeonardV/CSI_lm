@@ -1,5 +1,6 @@
-data <- read.csv("multiple_regression.csv")
-model <- 'y ~ x1 + x2 + x3 + x4 + x5'
+data <- read.csv("IQ.csv")
+model <- "IQ ~ social + artistic + language + walking + talking"
+
 R1 <- rbind(c(0,1,0,0,0,0), c(0,0,1,0,0,0), c(0,0,0,1,0,0),
             c(0,0,0,0,-1,0), c(0,0,0,0,0,-1))
 
@@ -18,4 +19,3 @@ fit.csi <- csi.lm(model, data, ui = R1, mix.weights = "boot")
 fit.csi$T.obs
 # p values
 fit.csi$p.value
-
