@@ -12,7 +12,7 @@ pf(f[1],f[2],f[3], lower.tail = FALSE)
 
 
 ## F-bar test ##
-fit.csi <- csi.lm(model, data, ui = R1, mix.weights = "boot", seed = 3013073)
+fit.csi <- csi.lm(model, data, ui = R1)
 # F-bar statistics
 fit.csi$T.obs
 # p values
