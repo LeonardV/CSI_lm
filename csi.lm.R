@@ -199,6 +199,7 @@ csi.lm <- function(model, data, ui = NULL, bvec = NULL, meq = 0, pvalue = TRUE,
       }
     } else if (mix.weights == "mvtnorm" | mix.weights == "boot") {
       if (mix.weights == "boot") {
+        if (meq != 0L) stop("not yet implemented. set mix.weights = mvtnorm")
         posPar <- matrix(as.numeric(NA), R, nrow(ui))
         
         fn <- function(b) { 
@@ -219,15 +220,8 @@ csi.lm <- function(model, data, ui = NULL, bvec = NULL, meq = 0, pvalue = TRUE,
           } else if (p.distr == "chi") {
             Yboot <- rchisq(n, df = df)
           }
-          idx <- row.names(mfit)
-          X <- model.matrix(fit.lm)[,,drop=FALSE][idx,]
-          if (!attr(fit.lm$terms, "intercept")) {
-            X[,1] <- 1L 
-          }
-          data <- data.frame(Yboot, X[,-1])
-          fit.lm <- lm('Yboot ~ .', data)
-          mfit <- fit.lm$model
-          Y <- model.response(mfit)
+          
+          X <- model.matrix(fit.lm)[,,drop=FALSE]
           
           #weigths specified
           if(!is.null(w)) {
@@ -237,9 +231,9 @@ csi.lm <- function(model, data, ui = NULL, bvec = NULL, meq = 0, pvalue = TRUE,
             #no weights specified
           } else {
             XX <- crossprod(X) 
-            Xy <- t(X) %*% Y   
+            Xy <- t(X) %*% Yboot   
           }
-          uiw <- rbind(diag(ncol(ui))[1:nrow(ui),])
+          uiw <- rbind(diag(p)[1:nrow(ui),])
           out.ic <- my.solve.QP(Dmat = XX, dvec = Xy, Amat = t(uiw), meq = 0L)
           out.ic$solution[abs(out.ic$solution) < sqrt(.Machine$double.eps)] <- 0L  
           par <- out.ic$solution
@@ -278,7 +272,8 @@ csi.lm <- function(model, data, ui = NULL, bvec = NULL, meq = 0, pvalue = TRUE,
         }
         posPar <- sapply(1:R, function(x) sum(posPar[x,] > 0L))
         wt.bar <- sapply(0:nrow(ui), function(x) sum(posPar == x) / R)
-          names(wt.bar) <- 0:nrow(ui)
+        wt.bar <- rev(wt.bar)
+          names(wt.bar) <- nrow(ui):0        
       }
       else if (mix.weights == "mvtnorm") {
         # only inequality constraints 
@@ -287,7 +282,6 @@ csi.lm <- function(model, data, ui = NULL, bvec = NULL, meq = 0, pvalue = TRUE,
           # equality and inequality constraints
         } else if (meq > 0) {
           wt.bar <- ic.infer:::ic.weights(solve(solve(ui %*% cov %*% t(ui))[-(1:meq),-(1:meq)]))
-          wt.bar <- rev(wt.bar)
         }
       }
       
@@ -312,7 +306,7 @@ csi.lm <- function(model, data, ui = NULL, bvec = NULL, meq = 0, pvalue = TRUE,
         
         return(cdf)
       }
-      Fbar.pA <- 1 - pbarA(x=T.obs[1], df1a=df1a, df2a=df.error, wt=rev(wt.bar))    
+      Fbar.pA <- 1 - pbarA(x=T.obs[1], df1a=df1a, df2a=df.error, wt=rev(wt.bar))
       
       #Hypothesis test Type B
       pbarB <- function(x, df1b, df2b, wt) {
