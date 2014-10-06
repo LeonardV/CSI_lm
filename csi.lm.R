@@ -220,9 +220,7 @@ csi.lm <- function(model, data, ui = NULL, bvec = NULL, meq = 0, pvalue = TRUE,
             Yboot <- rchisq(n, df = df)
           }
           idx <- row.names(mfit)
-          model.rhs <- formula(model)
-          model.rhs[[2]] <- NULL
-          X <- model.matrix(model.rhs)[,,drop=FALSE][idx,]
+          X <- model.matrix(fit.lm)[,,drop=FALSE][idx,]
           if (!attr(fit.lm$terms, "intercept")) {
             X[,1] <- 1L 
           }
@@ -286,7 +284,6 @@ csi.lm <- function(model, data, ui = NULL, bvec = NULL, meq = 0, pvalue = TRUE,
         # only inequality constraints 
         if (meq == 0L) {
           wt.bar <- ic.infer:::ic.weights(ui %*% cov %*% t(ui))
-          wt.bar <- rev(wt.bar)
           # equality and inequality constraints
         } else if (meq > 0) {
           wt.bar <- ic.infer:::ic.weights(solve(solve(ui %*% cov %*% t(ui))[-(1:meq),-(1:meq)]))
@@ -315,7 +312,7 @@ csi.lm <- function(model, data, ui = NULL, bvec = NULL, meq = 0, pvalue = TRUE,
         
         return(cdf)
       }
-      Fbar.pA <- 1 - pbarA(x=T.obs[1], df1a=df1a, df2a=df.error, wt=wt.bar)    
+      Fbar.pA <- 1 - pbarA(x=T.obs[1], df1a=df1a, df2a=df.error, wt=rev(wt.bar))    
       
       #Hypothesis test Type B
       pbarB <- function(x, df1b, df2b, wt) {
