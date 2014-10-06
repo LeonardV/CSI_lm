@@ -36,7 +36,7 @@
 source('my.quadprog.R')
 
 csi.lm <- function(model, data, ui = NULL, bvec = NULL, meq = 0, pvalue = TRUE, 
-                   mix.weights = c("boot", "none", "mvtnorm"), R=9999, 
+                   mix.weights = c("mvtnorm", "none", "boot"), R=9999, 
                    double.bootstrap = FALSE, double.bootstrap.R = 9999, 
                    p.distr = c("n", "t", "chi"), df = 7, R2 = TRUE,
                    parallel = c("no", "multicore", "snow"), ncpus = 1L, cl = NULL,                 
@@ -220,9 +220,7 @@ csi.lm <- function(model, data, ui = NULL, bvec = NULL, meq = 0, pvalue = TRUE,
           } else if (p.distr == "chi") {
             Yboot <- rchisq(n, df = df)
           }
-          
           X <- model.matrix(fit.lm)[,,drop=FALSE]
-          
           #weigths specified
           if(!is.null(w)) {
             W <- diag(w.model)
@@ -233,7 +231,9 @@ csi.lm <- function(model, data, ui = NULL, bvec = NULL, meq = 0, pvalue = TRUE,
             XX <- crossprod(X) 
             Xy <- t(X) %*% Yboot   
           }
-          uiw <- rbind(diag(p)[1:nrow(ui),])
+          start.idx <- min(sapply(1:nrow(ui), function(x) which(ui[x,] == 1)))
+          idx <- start.idx:(nrow(ui)+(start.idx-1))
+          uiw <- rbind(diag(p)[idx,])
           out.ic <- my.solve.QP(Dmat = XX, dvec = Xy, Amat = t(uiw), meq = 0L)
           out.ic$solution[abs(out.ic$solution) < sqrt(.Machine$double.eps)] <- 0L  
           par <- out.ic$solution
