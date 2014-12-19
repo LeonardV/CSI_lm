@@ -1,0 +1,134 @@
+source('pwr_ANOVA.R')
+source('Run_sim_ANOVA.R')
+source('my.quadprog.R')
+source('csi.lm.R')
+
+#This is an example
+#ANOVA with k=3 groups
+#medium effect-size f=0.25
+#two order-constraint, with k=3 this is the maximum nuber of order constraints
+#ui=rbind(c(0,1,0), c(0,-1,1)) 
+out <- pwr.anova(k=3, f=0.25, group_size=37, ui=rbind(c(0,1,0), c(0,-1,1)), 
+                 pwr=0.80, sims=20000, sigma=diag(3), ncpus=4, rsq=FALSE, 
+                 seed=3013073) 
+
+################################################################################
+
+pwr.anova <- function(k=k, f=f, group_size=group_size, ui=ui, pwr=0.80, 
+                      sims=sims, order=c(1:k), sigma=diag(k), ncpus=1, 
+                      rsq=FALSE, seed=3013073) {
+  
+  powerAB <- powerA <- powerB <- pvalue <- list()
+  FFbar.powerAB <- data.frame()
+  
+  i=1:k
+  #compute equal difference scores, d, between the means
+  d=(2*sqrt(k)*f) / sqrt(sum((2*i-1-k)^2))
+  #compute first (read lowest) mean mu
+  mu.i=( -(k-1)*d ) / 2
+  #compute k means
+  means=c(mu.i, mu.i + 1:(k-1)*d)
+  
+  cat("n =", group_size, "means =", means, " \n")
+  
+  out <- run_sim(k=k, n=rep(group_size,k), means=means, sigma=diag(k),
+                 model='y ~ grp', ui=ui, ncpus=1,
+                 meq=0, sims=sims, pwr=pwr, 
+                 verbose=TRUE, seed=seed, rsq=FALSE) 
+  
+  powerAB[[e]] <- out$Fbar.powerAB      
+  powerA[[e]]  <- out$Fbar.powerA   
+  powerB[[e]]  <- out$Fbar.powerB
+  pvalue[[e]]  <- out$pvalue
+  
+  power <- list(powerAB=powerAB, powerA=powerA, powerB=powerB, pvalue=pvalue)
+  
+  return(power)
+}
+
+################################################################################
+
+run_sim <- function(k=k, n=n, means=means, sigma=diag(k), 
+                    model=model, ui=ui, 
+                    meq=meq, sims=sims, pwr=pwr, R=R, rsq=rsq,
+                    parallel="multicore", ncpus=ncpus, cl=NULL, 
+                    verbose=verbose, seed=seed) {
+  
+  getpower <- function() {
+    
+    F.sigAB <- F.sigB <- F.sigA <- rep(NA, sims)
+    T.obs <- matrix(as.numeric(NA), sims, 2)
+    pvalue <- matrix(as.numeric(NA), sims, 2)
+    
+    group <- factor(rep(1:k, each=n[1]))
+    
+    set.seed(seed)
+    for(b in 1:sims) {
+      #create ANOVA data, sigma is an identity-matrix
+      sim.data <- cbind(c(matrix(MASS:::mvrnorm(n[1], mu=means, Sigma=sigma,
+                                                empirical=FALSE), nrow=n[1])))
+      #fit model
+      fit.lm <- lm(sim.data ~ factor(group))
+      data <- fit.lm$model
+      
+      # compute p-value based on multivariate normal distribution function
+      fit <- csi.lm(model=formula(fit.lm), data, R=R, 
+                    mix.weights="mvtnorm", parallel=parallel, ncpus=ncpus, 
+                    cl=cl, R2=rsq, pvalue=TRUE, verbose=verbose, meq=meq, 
+                    ui=ui, p.distr="N", df=4, seed=seed)     
+      
+      #store p-values 
+      pvalue[b,1:2] <- fit$p.value[1:2]  
+      #observed test statistics
+      T.obs[b,1:2] <- fit$T.obs[1:2]
+      
+      ##assign 1 to p <= alpha and 0 otherwise
+      F.sigA[b] <- ifelse(pvalue[b,1] <= .05, 1, 0)  
+      F.sigB[b] <- ifelse(pvalue[b,2] <= .05, 1, 0)
+      
+      #combine hypothesis Test A and Type B into Type A*
+      F.sigAB[b] <- ifelse((pvalue[b,1] <= 0.05 && pvalue[b,2] > 0.05), 1, 0) 
+    }
+    
+    out <- list("pvalue"=pvalue, "T.obs"=T.obs,
+                "Fbar_power_A"=mean(F.sigA), "Fbar_power_B"=mean(F.sigB),
+                "Fbar_power_AB"=mean(F.sigAB))
+  }
+  
+  Fbar.power.AB <- Fbar.power.A <- Fbar.power.B <- 0
+  Fbar.power.AA <- Fbar.power.BB <- data.frame()
+  Fbar.power.AB <- data.frame()
+  ppvalue <- TT.obs <- data.frame()
+  
+  power <- 0
+  
+  #This is where the magic happens
+  while(power < pwr) { 
+    result <- getpower()
+    pvalue <- result$pvalue
+    
+    Fbar.powerA <- result$Fbar_power_A
+    Fbar.powerB <- result$Fbar_power_B
+    Fbar.powerAB <- result$Fbar_power_AB
+    
+    power <- Fbar.powerAB <- result$Fbar_power_AB
+    T.obs <- result$T.obs
+    
+    cat("Fbar.powerA =", Fbar.powerA, "Fbar.powerB =", Fbar.powerB, 
+        "Fbar.powerAB =", Fbar.powerAB, "group size =", n,"\n")
+    
+    Fbar.power.AA <- rbind(Fbar.power.AA, data.frame("group_n"=n[1], "Fbar.powerA"=Fbar.powerA)) 
+    Fbar.power.BB <- rbind(Fbar.power.BB, data.frame("group_n"=n[1], "Fbar.powerB"=Fbar.powerB)) 
+    Fbar.power.AB <- rbind(Fbar.power.AB, data.frame("group_n"=n[1], "Fbar.powerAB"=Fbar.powerAB)) 
+    
+    ppvalue  <- rbind(ppvalue, data.frame("group_n"=n[1], "pvalue"=pvalue))
+    TT.obs  <- rbind(TT.obs, data.frame("group_n"=n[1], "T.obs"=T.obs))
+    
+    n <- n + 1
+  }
+  
+  out <- list("Fbar.powerA" = Fbar.power.AA, "Fbar.powerB"= Fbar.power.BB, 
+              "pvalue"= ppvalue, "T.obs"=T.obs)
+  
+  return(out) 
+}
