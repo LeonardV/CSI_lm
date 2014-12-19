@@ -1,3 +1,6 @@
+#This R-code was used to run the simulations in the article
+#'Constrainted Statistical Inference: Sample-size tables for ANOVA and Regression.'
+
 source('pwr_ANOVA.R')
 source('Run_sim_ANOVA.R')
 source('my.quadprog.R')
