@@ -43,7 +43,7 @@ csi.lm <- function(model, data, ui = NULL, bvec = NULL, meq = 0, pvalue = TRUE,
                    seed = NULL, verbose = FALSE, ...) {
     
   # checks
-  if (qr(ui)$rank < nrow(ui)) {
+  if (qr(ui)$rank < nrow(ui) && mix.weights == "mvtnorm") {
     stop("Matrix ui must have full row-rank.")
   }  
   
