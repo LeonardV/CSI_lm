@@ -272,7 +272,7 @@ csi.lm <- function(model, data, ui = NULL, bvec = NULL, meq = 0, pvalue = TRUE,
         }
         posPar <- sapply(1:R, function(x) sum(posPar[x,] > 0L))
         wt.bar <- sapply(0:nrow(ui), function(x) sum(posPar == x) / R)
-        wt.bar <- rev(wt.bar)
+        #wt.bar <- rev(wt.bar)
           names(wt.bar) <- nrow(ui):0        
       }
       else if (mix.weights == "mvtnorm") {
