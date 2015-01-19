@@ -184,12 +184,12 @@ csi.lm <- function(model, data, ui = NULL, bvec = NULL, meq = 0, pvalue = TRUE,
         }
         boot.data <- data.frame(Yboot, X[,-1])
         
-        out <- CSI(model = formula(boot.data), data = boot.data, ui = ui, 
-                   bvec = bvec, meq = meq, mix.weights = "none", 
-                   pvalue = FALSE, R = 0L, 
-                   p.distr = p.distr, df = df, R2 = R2,
-                   parallel = "no", ncpus = 1L, cl = NULL,
-                   seed = seed, verbose = verbose) 
+        out <- csi.lm(model = formula(boot.data), data = boot.data, ui = ui, 
+                      bvec = bvec, meq = meq, mix.weights = "none", 
+                      pvalue = FALSE, R = 0L, 
+                      p.distr = p.distr, df = df, R2 = R2,
+                      parallel = "no", ncpus = 1L, cl = NULL,
+                      seed = seed, verbose = verbose) 
         
         if (verbose) cat("  ... ... T.obs  = ", out$T.obs, "\n")
         
