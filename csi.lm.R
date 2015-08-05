@@ -1,4 +1,4 @@
-# Code adjusted 09-19-2014 by L.Vanbrabant
+# Code adjusted 05-08-2015 by L.Vanbrabant
 # Parts of the code are taken from the R package ic.infer (Grömping, 2010)
 
 
