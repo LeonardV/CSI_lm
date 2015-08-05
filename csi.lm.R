@@ -35,44 +35,39 @@
 
 source('my.quadprog.R')
 
-csi.lm <- function(model, data, ui = NULL, bvec = NULL, meq = 0, pvalue = TRUE, 
-                   mix.weights = c("mvtnorm", "none", "boot"), R=9999, 
-                   double.bootstrap = FALSE, double.bootstrap.R = 9999, 
-                   p.distr = c("n", "t", "chi"), df = 7, R2 = TRUE,
-                   parallel = c("no", "multicore", "snow"), ncpus = 1L, cl = NULL,                 
-                   seed = NULL, verbose = FALSE, ...) {
-    
-  # checks
-  if (qr(ui)$rank < nrow(ui) && mix.weights == "mvtnorm") {
-    stop("Matrix ui must have full row-rank.")
-  }  
-  
+csi.lm <- function (object, Amat = NULL, bvec = NULL, meq = 0, overall = FALSE,
+                    pvalue = TRUE, mix.weights = c("mvtnorm", "boot", "none"), 
+                    R = 9999, p.distr = c("n", "t", "chi"), df = 7, 
+                    parallel = c("no", "multicore", "snow"), ncpus = 1L, 
+                    cl = NULL, seed = NULL, verbose = FALSE, ...) 
+{
+  if (qr(Amat)$rank < nrow(Amat) && mix.weights != "none") {
+    stop("Matrix Amat must have full row-rank. Set mixing weights to 'none'.")
+  }
   parallel <- tolower(parallel)
   p.distr <- tolower(p.distr)
   mix.weights <- tolower(mix.weights)
-  
-  stopifnot(parallel %in% c("no", "multicore", "snow"),
-            p.distr %in% c("n", "t", "chi"),
-            mix.weights %in% c("none", "boot", "mvtnorm"))          
-    
-  #if (missing(p.distr)) { p.distr <- "n" }
-  #if (missing(mix.weights)) { mix.weights <- "boot" }
-  #if (missing(parallel)) { parallel <- "no" }
-  if (!is.data.frame(data)) { stop("the data should be a dataframe.") }
-  if (is.null(ui)) { stop("no constraints matrix has been specified.") }
-  if (meq == nrow(ui)) { stop("test not applicable with equality restrictions only.") }
-  if (is.null(bvec)) { bvec <- rep(0, nrow(ui)) }
-  if (!is.vector(bvec)) { stop("bvec must be a vector.") }
-  
+  stopifnot(parallel %in% c("no", "multicore", "snow"), p.distr %in% 
+              c("n", "t", "chi"), mix.weights %in% c("none", "boot", 
+                                                     "mvtnorm"))
+  if (is.null(Amat)) {
+    stop("no constraints matrix has been specified.")
+  }
+  if (meq == nrow(Amat)) {
+    stop("test not applicable with equality restrictions only.")
+  }
+  if (is.null(bvec)) {
+    bvec <- rep(0, nrow(Amat))
+  }
+  if (!is.vector(bvec)) {
+    stop("bvec must be a vector.")
+  }
   p.distr <- match.arg(p.distr)
   mix.weights <- match.arg(mix.weights)
-    
-  T.obs <- vector("numeric", 2)
-  p.value <- vector("numeric", 2)
+  stat <- vector("numeric", 2)
+  p_value <- vector("numeric", 2)
   Rboot.tot <- as.numeric(NA)
-  wt.bar <- vector("numeric", nrow(ui) + 1)
-  
-  # prepare for parallel processing
+  wt.bar <- vector("numeric", nrow(Amat) + 1)
   parallel <- match.arg(parallel)
   have_mc <- have_snow <- FALSE
   if (parallel != "no" && ncpus > 1L) {
@@ -83,164 +78,135 @@ csi.lm <- function(model, data, ui = NULL, bvec = NULL, meq = 0, pvalue = TRUE,
     if (!have_mc && !have_snow) 
       ncpus <- 1L
   }
-  
-  # fit model
-  fit.lm <- lm(as.formula(model), data, ...)
-  # model
+  fit.lm <- object
   mfit <- fit.lm$model
-  # response variable
   Y <- model.response(mfit)
-  # model.matrix
-  X <- model.matrix(fit.lm)[,,drop=FALSE]
-  # weights
+  X <- model.matrix(fit.lm)[,,drop = FALSE]
   w <- NULL
-  n = length(Y) 
+  n = length(Y)
   b <- coef(fit.lm)
   p <- length(b)
   cov <- vcov(fit.lm)
   s2 <- summary(fit.lm)$sigma^2
-  df.error <- as.numeric(summary(fit.lm)$fstatistic[3])
-    
-  #weigths specified
-  if(!is.null(w)) {
+  df.error <- summary(fit.lm)$fstatistic[[3]]
+  if (!is.null(w)) {
     W <- diag(w.model)
     XX <- t(X) %*% W %*% X
     Xy <- t(X) %*% W %*% Y
-    #no weights specified
-  } else {
-    XX <- crossprod(X) 
-    Xy <- t(X) %*% Y   
   }
-    
-  ### fit models ###
-  if (attr(fit.lm$terms, "intercept")) {
-    ui.eq <- cbind(rep(0, (p-1)), diag(rep(1, p-1)))
+  else {
+    XX <- crossprod(X)
+    Xy <- t(X) %*% Y
+  }
+  
+  if(overall) {
+    RSS.h0 <- sum((Y - mean(predict(fit.lm)))^2)
+    par.h0 <- rep(mean(predict(fit.lm)), p)  
   } else {
-    ui.eq <- cbind(diag(rep(1, p)))
-  }  
-  RSS.h0 <- sum((Y - mean(predict(fit.lm)))^2)
-  par.h0 <- rep(mean(predict(fit.lm)), p)
-  # full model RSS (possibly constrained) 
-  out.ic <- my.solve.QP(Dmat = XX, dvec = Xy, Amat = t(ui), 
+      out.eq <- my.solve.QP(Dmat = XX, dvec = Xy, Amat = t(Amat), bvec = bvec, 
+                            meq = nrow(Amat))
+      out.eq$solution[abs(out.eq$solution) < sqrt(.Machine$double.eps)] <- 0L
+      par.h0 <- out.eq$solution
+      RSS.h0 <- sum((Y - (X %*% par.h0))^2)
+    }  
+  out.ic <- my.solve.QP(Dmat = XX, dvec = Xy, Amat = t(Amat), 
                         bvec = bvec, meq = meq)
-  out.ic$solution[abs(out.ic$solution) < sqrt(.Machine$double.eps)] <- 0L  
+  out.ic$solution[abs(out.ic$solution) < sqrt(.Machine$double.eps)] <- 0L
   par.h1 <- out.ic$solution
-  RSS.h1 <- sum((Y - (X%*%par.h1))^2)
-  # number of active order constraints
-  iact <- out.ic$iact 
-  # completely unconstrained RSS (not always the same...)
+  RSS.h1 <- sum((Y - (X %*% par.h1))^2)
+  iact <- out.ic$iact
   par.h2 <- out.ic$unconstrained.solution
   RSS.h2 <- sum(resid(fit.lm)^2)
-    
-  # compute the F-bar test-statistics
-  # Type A
-  T.obs[1] <- (RSS.h0 - RSS.h1) / s2
-  # Type B
-  T.obs[2] <- (RSS.h1 - RSS.h2) / s2
-  # fix negative and very small values to zero? 
-  ind.zero <- which(T.obs < 1e-14) 
-  T.obs <- replace(T.obs, ind.zero, 0)  
-  
-  # compute R-square for models with and without weights and with and without 
-  # intercept
-  Rsq <- NULL
-  if (R2) {
-    # constrained residuals
-    residuals <- Y - (X %*% par.h1)
-    # code taken from package ic.infer
-    Rsq <- 1 - sum(residuals^2) / sum((Y - mean(Y))^2)
-    if (is.null(weights(fit.lm)) && !attr(fit.lm$terms, "intercept")) 
-      Rsq <- 1 - sum(residuals^2) / sum(Y^2)
-    #    else if (attr(fit.lm$terms, "intercept") && !is.null(weights(fit.lm))) 
-    #      Rsq <- 1 - sum(weights(fit.lm) * residuals^2) / 
-    #      sum(weights(fit.lm) * (Y - weighted.mean(Y, w = w.model))^2)
-    #    else if (!(attr(fit.lm$terms, "intercept") || is.null(weights(fit.lm)))) 
-    #      Rsq <- 1 - sum(weights(fit.lm) * residuals^2) / sum(weights(fit.lm) * Y^2)
+  stat[1] <- (RSS.h0 - RSS.h1)/s2
+  stat[2] <- (RSS.h1 - RSS.h2)/s2
+  ind.zero <- which(stat < 1e-14)
+  stat <- replace(stat, ind.zero, 0)
+  residuals <- Y - (X %*% par.h1)
+  Rsq <- 1 - sum(residuals^2)/sum((Y - mean(Y))^2)
+  if (is.null(weights(fit.lm)) && !attr(fit.lm$terms, "intercept")) {
+    Rsq <- 1 - sum(residuals^2)/sum(Y^2)
   }
   
-  # compute p-value based on bootstrapping or mixing weights  
   if (pvalue) {
-    # bootstrapped p value
-    if (mix.weights == "none") {    
-      T.boot <- matrix(as.numeric(NA), R, 2)
-      
-      fn <- function(b) { 
-        if (verbose) cat("R =", b)
-        if (!is.null(seed)) set.seed(seed + b)
-        if (!exists(".Random.seed", envir = .GlobalEnv))
-          runif (1)              
+    if (mix.weights == "none") {
+      Tboot <- matrix(as.numeric(NA), R, 2)
+      fn <- function(b) {
+        if (verbose) 
+          cat("R =", b)
+        if (!is.null(seed)) 
+          set.seed(seed + b)
+        if (!exists(".Random.seed", envir = .GlobalEnv)) 
+          runif(1)
         RNGstate <- .Random.seed
-        
-        # bootstrapped p-value based on normal-, T-, or Chi-square distribution
-        # Additional distributions can be added if needed.
-        # The null-distribution does not depend on mu and sigma. So any value
-        # can be used as long as the same values are used over all bootstrap runs.
         if (p.distr == "n") {
-          Yboot <- rnorm(n, 0, 1) 
-        } else if (p.distr == "t") {
-          Yboot <- rt(n, df = df)
-        } else if (p.distr == "chi") {
-          Yboot <- rchisq(n=n, df=df)
+          Yboot <- rnorm(n, 0, 1)
         }
-        boot.data <- data.frame(Yboot, X[,-1])
+        else if (p.distr == "t") {
+          Yboot <- rt(n, df = df)
+        }
+        else if (p.distr == "chi") {
+          Yboot <- rchisq(n = n, df = df)
+        }        
+        X <- model.matrix(fit.lm)[,,drop=TRUE]
+        object <- lm(Yboot ~ X -1)
         
-        out <- csi.lm(model = formula(boot.data), data = boot.data, ui = ui, 
-                      bvec = bvec, meq = meq, mix.weights = "none", 
-                      pvalue = FALSE, R = 0L, 
-                      p.distr = p.distr, df = df, R2 = R2,
-                      parallel = "no", ncpus = 1L, cl = NULL,
-                      seed = seed, verbose = verbose) 
-        
-        if (verbose) cat("  ... ... T.obs  = ", out$T.obs, "\n")
-        
-        out <- out$T.obs
-        
-        out 
+        out <- csi.lm(object, Amat = Amat, bvec = bvec, meq = meq, 
+                      overall = overall, mix.weights = "none", pvalue = FALSE, 
+                      R = 0L, p.distr = p.distr, df = df,  
+                      parallel = "no", ncpus = 1L, cl = NULL, 
+                      seed = seed, verbose = verbose)
+        if (verbose) 
+          cat(" ...FbarA = ", format(out$stat[1], digits=4, nsmall=3), 
+              "...FbarB = ", format(out$stat[2], digits=4, nsmall=3), "\n")
+        out <- out$stat
+        out
       }
-    } else if (mix.weights == "mvtnorm" | mix.weights == "boot") {
+    }
+    else if (mix.weights == "mvtnorm" | mix.weights == "boot") {
       if (mix.weights == "boot") {
-        if (meq != 0L) stop("not yet implemented. set mix.weights = mvtnorm")
-        posPar <- matrix(as.numeric(NA), R, nrow(ui))
-        
-        fn <- function(b) { 
-          if (verbose) cat("R =", b, "\n")
-          if (!is.null(seed)) set.seed(seed + b)
-          if (!exists(".Random.seed", envir = .GlobalEnv))
-            runif (1)              
+        #if (meq != 0L) 
+        #  stop("not yet implemented, set mix.weights to \"mvtnorm\" or \"none\"")
+        start.idx <- meq+2
+        idx <- start.idx:ncol(Amat)# + (start.idx - 1))
+        Amatw <- rbind(diag(p)[idx,])
+        posPar <- matrix(as.numeric(NA), R, nrow(Amat)-meq)
+        fn <- function(b) {
+          if (verbose) 
+            cat("R =", b, "\n")
+          if (!is.null(seed)) 
+            set.seed(seed + b)
+          if (!exists(".Random.seed", envir = .GlobalEnv)) 
+            runif(1)
           RNGstate <- .Random.seed
-          
-          # bootstrapped weights based on normal-, T-, or Chi-square distribution
-          # Additional distributions can be added if needed.
-          # The null-distribution does not depend on mu and sigma. So any value
-          # can be used as long as the same values are used over all bootstrap runs.
-          if (p.distr=="n") {
-            Yboot <- rnorm(n, 0, 1) 
-          } else if (p.distr == "t") {
+          if (p.distr == "n") {
+            Yboot <- rnorm(n, 0, 1)
+          }
+          else if (p.distr == "t") {
             Yboot <- rt(n, df = df)
-          } else if (p.distr == "chi") {
+          }
+          else if (p.distr == "chi") {
             Yboot <- rchisq(n, df = df)
           }
-          X <- model.matrix(fit.lm)[,,drop=FALSE]
-          #weigths specified
-          if(!is.null(w)) {
+          
+          X <- model.matrix(fit.lm)[,,drop = FALSE]
+                    
+          if (!is.null(w)) {
             W <- diag(w.model)
             XX <- t(X) %*% W %*% X
             Xy <- t(X) %*% W %*% Y
-            #no weights specified
-          } else {
-            XX <- crossprod(X) 
-            Xy <- t(X) %*% Yboot   
           }
-          start.idx <- min(sapply(1:nrow(ui), function(x) which(ui[x,] == 1)))
-          idx <- start.idx:(nrow(ui)+(start.idx-1))
-          uiw <- rbind(diag(p)[idx,])
-          out.ic <- my.solve.QP(Dmat = XX, dvec = Xy, Amat = t(uiw), meq = 0L)
-          out.ic$solution[abs(out.ic$solution) < sqrt(.Machine$double.eps)] <- 0L  
+          else {
+            XX <- crossprod(X)
+            Xy <- t(X) %*% Yboot
+          }
+          #start.idx <- min(sapply(1:nrow(Amat), function(x) which(Amat[x,]==1)))
+          out.ic <- my.solve.QP(Dmat = XX, dvec = Xy, 
+                                Amat = t(Amatw), meq=0L)
+          out.ic$solution[abs(out.ic$solution) < sqrt(.Machine$double.eps)] <- 0L
           par <- out.ic$solution
-          idx <- sapply(1:nrow(ui), function(x) which(uiw[x,] == 1))
+          idx <- sapply(1:nrow(Amatw), function(x) which(Amatw[x,] == 1))
           out <- par[idx]
-          
-          out 
+          out
         }
         
         RR <- sum(R)
@@ -250,82 +216,65 @@ csi.lm <- function(model, data, ui = NULL, bvec = NULL, meq = 0, pvalue = TRUE,
           }
           else if (have_snow) {
             if (is.null(cl)) {
-              cl <- parallel::makePSOCKcluster(rep("localhost", ncpus)) 
+              cl <- parallel::makePSOCKcluster(rep("localhost", 
+                                                   ncpus))
               if (RNGkind()[1L] == "L'Ecuyer-CMRG") 
-                parallel::clusterSetRNGStream(cl) 
-              res <- parallel::parLapply(cl, seq_len(RR), fn)  
-              parallel::stopCluster(cl) 
+                parallel::clusterSetRNGStream(cl)
+              res <- parallel::parLapply(cl, seq_len(RR), fn)
+              parallel::stopCluster(cl)
               res
             }
             else parallel::parLapply(cl, seq_len(RR), fn)
           }
-        } 
+        }
         else lapply(seq_len(RR), fn)
-        
         error.idx <- integer(0)
         for (b in seq_len(R)) {
           if (!is.null(res[[b]])) {
-            posPar[b, 1:nrow(ui)] <- res[[b]]
-          } else {
+            posPar[b, 1:nrow(Amatw)] <- res[[b]]
+          }
+          else {
             error.idx <- c(error.idx, b)
           }
         }
         posPar <- sapply(1:R, function(x) sum(posPar[x,] > 0L))
-        wt.bar <- sapply(0:nrow(ui), function(x) sum(posPar == x) / R)
-        #wt.bar <- rev(wt.bar)
-          names(wt.bar) <- nrow(ui):0        
+        wt.bar <- sapply(0:nrow(Amatw), function(x) sum(posPar == x)/R)
+          names(wt.bar) <- nrow(Amatw):0
       }
       else if (mix.weights == "mvtnorm") {
-        # only inequality constraints 
         if (meq == 0L) {
-          wt.bar <- ic.infer:::ic.weights(ui %*% cov %*% t(ui))
-          # equality and inequality constraints
-        } else if (meq > 0) {
-          wt.bar <- ic.infer:::ic.weights(solve(solve(ui %*% cov %*% t(ui))[-(1:meq),-(1:meq)]))
+          wt.bar <- ic.infer:::ic.weights(Amat %*% cov %*% t(Amat))
+        }
+        else if (meq > 0) {
+          wt.bar <- ic.infer:::ic.weights(solve(solve(Amat %*% 
+                                                        cov %*% t(Amat))[-(1:meq), 
+                                                                         -(1:meq)]))
         }
       }
-      
-      #r = qr(ui.eq)$rank
-      #q = qr(ui)$rank - meq 
-      #i = 0:q
-      #df1a = r-q+i
-      df1a <- ((length(par.h1)-1) - nrow(ui)):((length(par.h1)-1) - meq)
-      df1b <- meq:nrow(ui)
-      
-      ## these are adjusted functions of the pbetabar() function from the ##
-      ## ic.infer package ##
-      
-      #Hypothesis test Type A
-      pbarA <- function(x, df1a, df2a, wt) {
-        if (x <= 0) { 
-          return(0)
-        }
-        zed <- df1a == 0
-        cdf <- ifelse(any(zed), wt[zed], 0)
-        cdf <- cdf + sum(pf(x/df1a[!zed], df1a[!zed], df2a)*wt[!zed])
-        
-        return(cdf)
+      if(overall) {
+        df1 <- ((length(par.h1) - 1) - nrow(Amat)):((length(par.h1) - 1) - meq)  
+      } 
+      else {
+        df1 <- 0:(nrow(Amat) - meq)
       }
-      Fbar.pA <- 1 - pbarA(x=T.obs[1], df1a=df1a, df2a=df.error, wt=rev(wt.bar))
-      
-      #Hypothesis test Type B
-      pbarB <- function(x, df1b, df2b, wt) {
+            
+      pbar <- function(x, df1, df2, wt) {
         if (x <= 0) {
           return(0)
         }
-        zed <- df1b == 0
+        zed <- df1 == 0
         cdf <- ifelse(any(zed), wt[zed], 0)
-        cdf <- cdf + sum(pf(x/df1b[!zed], df1b[!zed], df2b)*wt[!zed])
-        
+        cdf <- cdf + sum(pf(x/df1[!zed], df1[!zed], 
+                            df2) * wt[!zed])
         return(cdf)
       }
-      Fbar.pB <- 1 - pbarB(x=T.obs[2], df1b=df1b, df2b=df.error, wt=wt.bar)
       
-      p.value[1:2] <- c(Fbar.pA, Fbar.pB)
-    }      
+      p_value[1] <- 1 - pbar(x=stat[1], df1=df1, df2=df.error, wt = rev(wt.bar))
+      
+      df1 <- meq:nrow(Amat)
+      p_value[2] <- 1 - pbar(x=stat[2], df1=df1, df2=df.error, wt = wt.bar)
+    }
   }
-  
-  # when a bootstrapped p-value is computed and parallel processing is used.
   if (mix.weights == "none" & pvalue) {
     RR <- sum(R)
     res <- if (ncpus > 1L && (have_mc || have_snow)) {
@@ -334,55 +283,44 @@ csi.lm <- function(model, data, ui = NULL, bvec = NULL, meq = 0, pvalue = TRUE,
       }
       else if (have_snow) {
         if (is.null(cl)) {
-          cl <- parallel::makePSOCKcluster(rep("localhost", ncpus)) 
+          cl <- parallel::makePSOCKcluster(rep("localhost", 
+                                               ncpus))
           if (RNGkind()[1L] == "L'Ecuyer-CMRG") 
-            parallel::clusterSetRNGStream(cl) 
-          res <- parallel::parLapply(cl, seq_len(RR), fn)  
-          parallel::stopCluster(cl) 
+            parallel::clusterSetRNGStream(cl)
+          res <- parallel::parLapply(cl, seq_len(RR), 
+                                     fn)
+          parallel::stopCluster(cl)
           res
         }
         else parallel::parLapply(cl, seq_len(RR), fn)
       }
-    } 
+    }
     else lapply(seq_len(RR), fn)
-    
     error.idx <- integer(0)
     for (b in seq_len(RR)) {
       if (!is.null(res[[b]])) {
-        T.boot[b, 1:2] <- res[[b]]
-      } else {
+        Tboot[b, 1:2] <- res[[b]]
+      }
+      else {
         error.idx <- c(error.idx, b)
       }
     }
-    # remove NA values / Inf values
-    na.boot.ind   <- which(is.na(T.boot), arr.ind = TRUE)
-    inf.boot.ind  <- which(T.boot == Inf, arr.ind = TRUE)
+    na.boot.ind <- which(is.na(Tboot), arr.ind = TRUE)
+    inf.boot.ind <- which(Tboot == Inf, arr.ind = TRUE)
     ind <- c(na.boot.ind[,1], inf.boot.ind[,1])
-    
     ind.unique <- unique(ind)
     Rboot.tot <- (R - length(ind.unique))
-    
-    if (length(ind.unique) > 0) { 
-      T.boot <- T.boot[-ind.unique,]
+    if (length(ind.unique) > 0) {
+      Tboot <- Tboot[-ind.unique, ]
     }
-    
-    #compue bootstrap p-value
-    p.value[1]  <- sum(T.boot[,1] > T.obs[1]) / Rboot.tot
-    p.value[2]  <- sum(T.boot[,2] > T.obs[2]) / Rboot.tot
+    p_value[1] <- sum(Tboot[,1] > stat[1])/Rboot.tot
+    p_value[2] <- sum(Tboot[,2] > stat[2])/Rboot.tot
   }
-  names(p.value) <- names(T.obs) <- c("Fbar.A","Fbar.B")
-  
-  out <- list(T.obs = T.obs, iact = iact, p.value = p.value, 
-              Rboot.tot = if (mix.weights == "none") { Rboot.tot },
-              ui = ui, meq = meq,
-              wt.bar = wt.bar,
-              R2 = if (R2) {Rsq},
-              par.h0 = par.h0,
-              par.h1 = par.h1,
-              par.h2 = par.h2)
-  
+  names(p_value) <- names(stat) <- c("FbarA", "FbarB")
+  out <- list(stat = stat, iact = iact, p_value = p_value, 
+              Rboot.tot = if (mix.weights == "none") {Rboot.tot}, Amat = Amat, 
+              meq = meq, wt.bar = if (mix.weights != "none") wt.bar, R2 = Rsq, 
+              par.h0 = par.h0, par.h1 = par.h1, par.h2 = par.h2)
   class(out) <- "CSI"
-  
-  return(out)
-  
+    return(out)
 }
