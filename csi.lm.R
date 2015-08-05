@@ -11,21 +11,17 @@
 ##############################
 ## explaining the arguments ##
 ##############################
-# model               : A description of the user-specified model. Typically, the model is described using the lm model syntax.
-# data                : Data frame containing the observed variables used in the model.
-# ui                  : Matrix (or vector in case of one single restriction only) defining the left-hand side of the restriction, ui%*%beta >= ci, where beta is the parameter vector.
-# meq                 : Integer number (default 0) giving the number of rows of ui that are used for equality restrictions instead of inequality restrictions.
-# bvec                : Vector holding the values of c (defaults to zero).
+# object              : lm object
+# Amat                : Matrix (or vector in case of one single restriction only) defining the left-hand side of the restriction, Amat%*%beta >= ci, where beta is the parameter vector.
+# bvec                : Vector holding the values of ci (defaults to zero).
+# meq                 : Integer number (default 0) giving the number of rows of Amat that are used for equality restrictions instead of inequality restrictions.
 # pvalue              : If TRUE (default), a p-value is computed
-# mix.weights         : The procedure of compuinge the p-value. If "none" (first approach), the p-value is computed directly without first calculating the mixing weights. 
+# mix.weights         : The procedure of compuinge the p-value. If "none" (first approach), a bootstrapped p-value is computed. 
 #                       If "boot" (second approach) the weights are computed based on a simulation procedure. 
 #                       If "mvtnorm" (third approach), the weights are computed based on the multivariate normal probability distribution. 
-# R                   : Integer; number of bootstrap draws. The default value is set to 99999.
-# double.bootstrap    : If a double bootstrap procedure should be used. (can be savely ignored in linear models)
-# double.bootstrap.R  : Integer; number of double bootstrap draws. The default value is set to 9999
-# p.distr             : Assumed error-distribution (normal by default, "N") for computing a bootstrapped p-value. Two other options are the t-distribution ("T") and the chi^2-distributions ("Chi").
-# df                  : Degrees of freedom, when p.distr="T" of p.distr="Chi".
-# R2                  : Computes the R-squared based on the constrained residuals.
+# R                   : Integer; number of bootstrap draws. The default value is set to 9999.
+# p.distr             : Assumed error-distribution (normal by default, "n") for computing a bootstrapped p-value. Two other options are the t-distribution ("t") and the chi^2-distributions ("chi").
+# df                  : Degrees of freedom, when p.distr="t" of p.distr="chi".
 # parallel            : The type of parallel operation to be used (if any). If missing, the default is set "no".
 # ncpus               : Integer: number of processes to be used in parallel operation: typically one would chose this to the number of available cores.
 # cl                  : An optional parallel or snow cluster for use if parallel = "snow". If not supplied, a cluster on the local machine is created for the duration of the InformativeTesting call.
