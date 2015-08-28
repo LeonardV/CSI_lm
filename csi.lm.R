@@ -74,56 +74,89 @@ csi.lm <- function (object, Amat = NULL, bvec = NULL, meq = 0, overall = FALSE,
     if (!have_mc && !have_snow) 
       ncpus <- 1L
   }
-  fit.lm <- object
-  mfit <- fit.lm$model
-  Y <- model.response(mfit)
-  X <- model.matrix(fit.lm)[,,drop = FALSE]
+  
+  mfit <- object$model
+  Y <- cbind(model.response(mfit))
+  X <- model.matrix(object)[,,drop = FALSE]
   w <- NULL
   n = length(Y)
-  b <- coef(fit.lm)
-  p <- length(b)
-  cov <- vcov(fit.lm)
-  s2 <- summary(fit.lm)$sigma^2
-  df.error <- summary(fit.lm)$fstatistic[[3]]
-  if (!is.null(w)) {
-    W <- diag(w.model)
-    XX <- t(X) %*% W %*% X
-    Xy <- t(X) %*% W %*% Y
-  }
-  else {
-    XX <- crossprod(X)
-    Xy <- t(X) %*% Y
+  beta.unc <- coef(object)
+  p <- length(beta.unc)
+  cov <- vcov(object)
+  s2 <- summary(object)$sigma^2
+  df.error <- summary(object)$fstatistic[[3]]
+  
+  
+#  if (!is.null(w)) {
+#    W <- diag(w.model)
+#    XX <- t(X) %*% W %*% X
+#    Xy <- t(X) %*% W %*% Y
+#  }
+#  else {
+#    XX <- crossprod(X)
+#    Xy <- t(X) %*% Y
+#  }
+  
+  
+  csi.solve <- function(beta.unc, x, y, Amat, bvec, meq) {
+    Sigma <- (t(y - x%*%matrix(beta.unc, ncol=ncol(y))) %*% (y - x%*%matrix(beta.unc, ncol=ncol(y)))) / nrow(x)
+    yVx <- kronecker(solve(Sigma), t(x)) %*% as.vector(y)
+    dvec <- 2*yVx
+    Dmat <- 2*kronecker(solve(Sigma), t(x) %*% x)
+    out <- quadprog:::solve.QP(Dmat,dvec,Amat=t(Amat),bvec=bvec, meq=meq)    
+    
+    return(out)
   }
   
-  if(overall) {
-    RSS.h0 <- sum((Y - mean(predict(fit.lm)))^2)
-    par.h0 <- rep(mean(predict(fit.lm)), p)  
-  } else {
-      out.eq <- my.solve.QP(Dmat = XX, dvec = Xy, Amat = t(Amat), bvec = bvec, 
-                            meq = nrow(Amat))
-      out.eq$solution[abs(out.eq$solution) < sqrt(.Machine$double.eps)] <- 0L
-      par.h0 <- out.eq$solution
-      RSS.h0 <- sum((Y - (X %*% par.h0))^2)
-    }  
-  out.ic <- my.solve.QP(Dmat = XX, dvec = Xy, Amat = t(Amat), 
-                        bvec = bvec, meq = meq)
-  out.ic$solution[abs(out.ic$solution) < sqrt(.Machine$double.eps)] <- 0L
-  par.h1 <- out.ic$solution
-  RSS.h1 <- sum((Y - (X %*% par.h1))^2)
-  iact <- out.ic$iact
-  par.h2 <- out.ic$unconstrained.solution
-  RSS.h2 <- sum(resid(fit.lm)^2)
+  
+#  Sigma <- (t(residuals(object)) %*% residuals(object))/nrow(X)
+  detU <- 1
+  maxit <- 1000
+  val <- 0
+  for (i in 1:maxit){
+    sqp <- csi.solve(beta.unc=beta.unc, x=X, y=Y, Amat=Amat, bvec=bvec, meq=nrow(Amat))
+    beta0 <- sqp$solution
+    if (abs(sqp$value - val) <= 1e-04) break else val <- sqp$value
+  }
+  if (i == maxit & abs(sqp$value - val) > 1e-04) warning("Maximum number of iterations reached without convergence.")
+  Sigma0 <- (t(Y - X %*% matrix(beta0, ncol=ncol(Y))) %*% (Y - X%*% matrix(beta0, ncol=ncol(Y))))/nrow(X)
+  loglik0 <- (-n/2.0)*log(2*pi) + (-1/2.0)*(nrow(X)*log(det(Sigma0)) + ncol(Y)*log(detU)) - (1/2.0)*n
+  #RSS.h0 <- sum((Y - (X %*%beta0))^2)
+  RSS.h0 <- sum((Y - (X %*%matrix(beta0, ncol=ncol(Y))))^2)
+  
+  
+  val <- 0
+  for (i in 1:maxit){
+    sqp <- csi.solve(beta.unc=beta.unc, x=X, y=Y, Amat=Amat, bvec=bvec, meq=meq)
+    beta1 <- sqp$solution
+    if (abs(sqp$value - val) <= 1e-04) break else val <- sqp$value
+  }
+  if (i == maxit & abs(sqp$value - val) > 1e-04) warning("Maximum number of iterations reached without convergence.")
+  Sigma1 <- (t(Y - X %*% matrix(beta1, ncol=ncol(Y))) %*% (Y - X %*% matrix(beta1, ncol=ncol(Y))))/nrow(X)
+  loglik1 <- (-n/2.0)*log(2*pi) + (-1/2.0)*(nrow(X)*log(det(Sigma1)) + ncol(Y)*log(detU)) - (1/2.0)*n
+  #RSS.h1 <- sum((Y - (X %*% beta1))^2)
+  RSS.h1 <- sum((Y - (X %*%matrix(beta1, ncol=ncol(Y))))^2)
+  
+  iact <- sqp$iact
+  Sigma2 <- (t(Y - X %*% matrix(beta.unc, ncol=ncol(Y))) %*% (Y - X %*% matrix(beta.unc, ncol=ncol(Y))))/nrow(X)
+  loglik2 <- (-n/2.0)*log(2*pi) + (-1/2.0)*(nrow(X)*log(det(Sigma2)) + ncol(Y)*log(detU)) - (1/2.0)*n
+  RSS.h2 <- sum(resid(object)^2)
+  
+  beta0 <- matrix(beta0, ncol=ncol(Y), dimnames=list(colnames(X), colnames(Y)))
+  beta1 <- matrix(beta1, ncol=ncol(Y), dimnames=list(colnames(X), colnames(Y)))
+  beta2 <- matrix(beta.unc, ncol=ncol(Y), dimnames=list(colnames(X), colnames(Y)))
+  
   stat[1] <- (RSS.h0 - RSS.h1)/s2
   stat[2] <- (RSS.h1 - RSS.h2)/s2
-  ind.zero <- which(stat < 1e-14)
-  stat <- replace(stat, ind.zero, 0)
-  residuals <- Y - (X %*% par.h1)
+    ind.zero <- which(stat < 1e-14)
+    stat <- replace(stat, ind.zero, 0)
+  residuals <- Y - (X %*% beta1)
   Rsq <- 1 - sum(residuals^2)/sum((Y - mean(Y))^2)
-  if (is.null(weights(fit.lm)) && !attr(fit.lm$terms, "intercept")) {
+  if (is.null(weights(object)) && !attr(object$terms, "intercept")) {
     Rsq <- 1 - sum(residuals^2)/sum(Y^2)
   }
   
-  if (pvalue) {
+  if (pvalue && ncol(Y) == 1L) { 
     if (mix.weights == "none") {
       Tboot <- matrix(as.numeric(NA), R, 2)
       fn <- function(b) {
@@ -143,10 +176,12 @@ csi.lm <- function (object, Amat = NULL, bvec = NULL, meq = 0, overall = FALSE,
         else if (p.distr == "chi") {
           Yboot <- rchisq(n = n, df = df)
         }        
-        X <- model.matrix(fit.lm)[,,drop=TRUE]
-        object <- lm(Yboot ~ X -1)
+        X <- model.matrix(object)[,-1,drop=TRUE]
+        boot.data <- data.frame(Yboot, X)
         
-        out <- csi.lm(object, Amat = Amat, bvec = bvec, meq = meq, 
+        object.boot <- lm(Yboot ~ ., data=boot.data)
+        
+        out <- csi.lm(object.boot, Amat = Amat, bvec = bvec, meq = meq, 
                       overall = overall, mix.weights = "none", pvalue = FALSE, 
                       R = 0L, p.distr = p.distr, df = df,  
                       parallel = "no", ncpus = 1L, cl = NULL, 
@@ -163,7 +198,7 @@ csi.lm <- function (object, Amat = NULL, bvec = NULL, meq = 0, overall = FALSE,
         #if (meq != 0L) 
         #  stop("not yet implemented, set mix.weights to \"mvtnorm\" or \"none\"")
         start.idx <- meq+2
-        idx <- start.idx:ncol(Amat)# + (start.idx - 1))
+        idx <- start.idx:ncol(Amat) #+ (start.idx - 1))
         Amatw <- rbind(diag(p)[idx,])
         posPar <- matrix(as.numeric(NA), R, nrow(Amat)-meq)
         fn <- function(b) {
@@ -184,24 +219,33 @@ csi.lm <- function (object, Amat = NULL, bvec = NULL, meq = 0, overall = FALSE,
             Yboot <- rchisq(n, df = df)
           }
           
-          X <- model.matrix(fit.lm)[,,drop = FALSE]
-                    
-          if (!is.null(w)) {
-            W <- diag(w.model)
-            XX <- t(X) %*% W %*% X
-            Xy <- t(X) %*% W %*% Y
-          }
-          else {
-            XX <- crossprod(X)
-            Xy <- t(X) %*% Yboot
-          }
+          X <- model.matrix(object)[,,drop = FALSE]
+          
+          #if (!is.null(w)) {
+          #  W <- diag(w.model)
+          #  XX <- t(X) %*% W %*% X
+          #  Xy <- t(X) %*% W %*% Y
+          #}
+          #else {
+          #  XX <- crossprod(X)
+          #  Xy <- t(X) %*% Yboot
+          #}
           #start.idx <- min(sapply(1:nrow(Amat), function(x) which(Amat[x,]==1)))
-          out.ic <- my.solve.QP(Dmat = XX, dvec = Xy, 
-                                Amat = t(Amatw), meq=0L)
-          out.ic$solution[abs(out.ic$solution) < sqrt(.Machine$double.eps)] <- 0L
-          par <- out.ic$solution
+          #out.ic <- quadprog:::solve.QP(Dmat = XX, dvec = Xy, 
+          #                              Amat = t(Amatw), meq=0L)
+          #out.ic$solution[abs(out.ic$solution) < sqrt(.Machine$double.eps)] <- 0L
+          #par <- out.ic$solution
+          
+          val <- 0
+          for (i in 1:maxit){
+            sqp <- csi.solve(beta.unc=beta.unc, x=X, y=cbind(Yboot), Amat=Amatw, bvec=bvec, meq=0L)
+            beta1.boot <- sqp$solution
+            if (abs(sqp$value - val) <= 1e-04) break else val <- sqp$value
+          }
+          
+          
           idx <- sapply(1:nrow(Amatw), function(x) which(Amatw[x,] == 1))
-          out <- par[idx]
+          out <- beta1.boot[idx]
           out
         }
         
@@ -235,7 +279,7 @@ csi.lm <- function (object, Amat = NULL, bvec = NULL, meq = 0, overall = FALSE,
         }
         posPar <- sapply(1:R, function(x) sum(posPar[x,] > 0L))
         wt.bar <- sapply(0:nrow(Amatw), function(x) sum(posPar == x)/R)
-          names(wt.bar) <- nrow(Amatw):0
+        names(wt.bar) <- nrow(Amatw):0
       }
       else if (mix.weights == "mvtnorm") {
         if (meq == 0L) {
@@ -253,7 +297,7 @@ csi.lm <- function (object, Amat = NULL, bvec = NULL, meq = 0, overall = FALSE,
       else {
         df1 <- 0:(nrow(Amat) - meq)
       }
-            
+      
       pbar <- function(x, df1, df2, wt) {
         if (x <= 0) {
           return(0)
@@ -271,7 +315,7 @@ csi.lm <- function (object, Amat = NULL, bvec = NULL, meq = 0, overall = FALSE,
       p_value[2] <- 1 - pbar(x=stat[2], df1=df1, df2=df.error, wt = wt.bar)
     }
   }
-  if (mix.weights == "none" & pvalue) {
+  if (mix.weights == "none" && pvalue && ncol(Y) == 1L) {
     RR <- sum(R)
     res <- if (ncpus > 1L && (have_mc || have_snow)) {
       if (have_mc) {
@@ -316,7 +360,8 @@ csi.lm <- function (object, Amat = NULL, bvec = NULL, meq = 0, overall = FALSE,
   out <- list(stat = stat, iact = iact, p_value = p_value, 
               Rboot.tot = if (mix.weights == "none") {Rboot.tot}, Amat = Amat, 
               meq = meq, wt.bar = if (mix.weights != "none") wt.bar, R2 = Rsq, 
-              par.h0 = par.h0, par.h1 = par.h1, par.h2 = par.h2)
+              beta0 = t(beta0), beta1 = t(beta1), beta2 = t(beta2))
   class(out) <- "CSI"
-    return(out)
+  return(out)
 }
+
