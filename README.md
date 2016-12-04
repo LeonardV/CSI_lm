@@ -1,1 +1,1 @@
-WARNING: this function has been deprecated. Please use the restriktor package.
+WARNING: these functions have been deprecated. Please use the restriktor package.
